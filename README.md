@@ -14,14 +14,40 @@ As long agent sessions grow, every tool call adds token-heavy output to the cont
 
 The session file is never modified. Pruning only affects the next request's context build.
 
-## Usage
+## Installation
+
+### Install permanently (recommended)
 
 ```bash
-# Load from the repo root
-pi -e /path/to/pi-context-prune
+# Install globally (all projects)
+pi install git:github.com/championswimmer/pi-context-prune
 
-# Or from inside the repo
+# Or install for the current project only
+pi install -l git:github.com/championswimmer/pi-context-prune
+```
+
+Once installed, the extension is auto-loaded every time you run `pi`. No flags needed.
+
+### Try without installing
+
+```bash
+# Load for this session only (no install)
+pi -e git:github.com/championswimmer/pi-context-prune
+```
+
+### From source (development)
+
+```bash
+git clone https://github.com/championswimmer/pi-context-prune
+cd pi-context-prune
 pi -e .
+```
+
+### Manage installed extensions
+
+```bash
+pi list           # show installed packages
+pi remove git:github.com/championswimmer/pi-context-prune
 ```
 
 ## Commands
