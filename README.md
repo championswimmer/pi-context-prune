@@ -56,21 +56,21 @@ The extension supports five trigger modes controlling **when** summarization and
 
 | Mode | Label | Trigger | Best for |
 |---|---|---|---|
-| `every-turn` | Every turn | Immediately after each tool-calling turn (default) | Maximum context savings; simple and automatic |
+| `every-turn` | Every turn | Immediately after each tool-calling turn | Maximum context savings; simple and automatic |
 | `on-context-tag` | On context tag | When the LLM (or user) calls `context_tag` | Aligns pruning with save-points / milestones |
 | `on-demand` | On demand | Only when you run `/pruner now` | Full manual control — nothing is pruned automatically |
-| `agent-message` | On agent message | When the agent sends a final text-only response (no tool calls), or when the agent loop ends | Batch multiple tool turns and summarize once at the end of an agentic run |
+| `agent-message` | On agent message | When the agent sends a final text-only response (no tool calls), or when the agent loop ends (default) | Batch multiple tool turns and summarize once at the end of an agentic run |
 | `agentic-auto` | Agentic auto | The LLM decides by calling the `context_prune` tool | Let the model manage its own context budget |
 
 ### How each mode works
 
-**`every-turn`** — Every time an assistant turn includes tool calls, the results are summarized and pruned immediately. No batching; each turn is independent. This is the default and simplest mode.
+**`every-turn`** — Every time an assistant turn includes tool calls, the results are summarized and pruned immediately. No batching; each turn is independent. The simplest mode.
 
 **`on-context-tag`** — Tool-call turns are batched (queued) until `context_tag` is called (either by the model or the user via a save-point). At that point, all pending batches are summarized in a single LLM call and pruned. Useful when you want pruning to align with natural checkpoints.
 
 **`on-demand`** — Tool-call turns are batched but never summarized automatically. You must run `/pruner now` to flush the queue. Gives you complete control over when summarization happens.
 
-**`agent-message`** — Tool-call turns are batched. When the agent sends a final text-only response (a turn with no tool calls), all pending batches are flushed and summarized. If the agent loop ends before a text-only turn (e.g., aborted), a safety-net flush ensures no batches are lost. Ideal for agentic runs where you want to batch all intermediate tool work and summarize only at the end.
+**`agent-message`** — Tool-call turns are batched. When the agent sends a final text-only response (a turn with no tool calls), all pending batches are flushed and summarized. If the agent loop ends before a text-only turn (e.g., aborted), a safety-net flush ensures no batches are lost. Ideal for agentic runs where you want to batch all intermediate tool work and summarize only at the end. This is the default mode.
 
 **`agentic-auto`** — The `context_prune` tool is activated and made available to the LLM. A system prompt instructs the model to call it after completing a meaningful batch of 8–10 related tool calls (and not after every 2–3 trivial calls). When the model calls `context_prune`, all pending batches are flushed. The tool is only active in this mode. If the agent loop ends with remaining pending batches, they are flushed automatically.
 
@@ -84,11 +84,13 @@ The extension registers the `/pruner` command:
 | `/pruner settings` | Opens an interactive settings overlay |
 | `/pruner on` | Enable pruning |
 | `/pruner off` | Disable pruning |
-| `/pruner status` | Show enabled state, summarizer model, and prune trigger |
+| `/pruner status` | Show enabled state, summarizer model, prune trigger, and cumulative stats |
 | `/pruner model` | Show current summarizer model |
 | `/pruner model <id>` | Set summarizer model (e.g. `anthropic/claude-haiku-3-5`) |
 | `/pruner prune-on` | Interactive picker over all trigger modes |
 | `/pruner prune-on <mode>` | Set trigger mode directly |
+| `/pruner stats` | Show cumulative summarizer token/cost stats |
+| `/pruner tree` | Browse pruned tool calls in a foldable tree browser |
 | `/pruner now` | Flush pending tool calls immediately (works in all modes) |
 | `/pruner help` | Show full help text |
 
@@ -142,7 +144,7 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 |---|---|---|
 | `enabled` | `true` / `false` | `false` |
 | `summarizerModel` | `"default"` or `"provider/model-id"` | `"default"` |
-| `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"every-turn"` |
+| `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"agent-message"` |
 
 - `"default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
 - Settings are persisted on every change via the `/pruner` command or the settings overlay.
@@ -160,6 +162,8 @@ src/
   pruner.ts                 — filter context event messages
   query-tool.ts             — context_tree_query tool registration
   context-prune-tool.ts     — context_prune tool registration (agentic-auto)
+  stats.ts                  — StatsAccumulator for cumulative token/cost tracking
+  tree-browser.ts           — foldable tree browser for /pruner tree
   commands.ts               — /pruner command + settings overlay + message renderer
 ```
 
@@ -169,10 +173,12 @@ src/
 session_start
   └─► loadConfig()              read ~/.pi/agent/context-prune/settings.json
   └─► indexer.reconstruct()     rebuild Map from session branch entries
+  └─► statsAccum.reconstruct()  rebuild stats from session branch entries
   └─► syncToolActivation()      activate/deactivate context_prune tool
 
 session_tree
   └─► indexer.reconstruct()     rebuild Map (branch may have different history)
+  └─► statsAccum.reconstruct()  rebuild stats (branch may have different history)
   └─► clear pendingBatches      discard queued batches from old branch
 
 turn_end (tool calls present + enabled)
@@ -192,7 +198,9 @@ context_prune tool call (agentic-auto mode)
   └─► flushPending()
 
 flushPending()
-  └─► summarizeBatches()         call LLM → summary markdown text
+  └─► summarizeBatches()         call LLM → summary text + usage stats
+  └─► statsAccum.add()           accumulate token/cost stats
+  └─► statsAccum.persist()       persist stats to session
   └─► indexer.addBatch()         persist to session via pi.appendEntry
   └─► pi.sendMessage()           inject summary (deliverAs: "steer")
 
@@ -214,8 +222,9 @@ before_agent_start (agentic-auto mode)
 
 The extension registers a status widget in the Pi footer that shows the current state:
 
-- `prune: OFF (Every turn)` — pruning disabled, showing what mode it would use
+- `prune: OFF (On agent message)` — pruning disabled, showing what mode it would use
 - `prune: ON (On agent message)` — pruning active with the current trigger mode
+- `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003` — pruning active with cumulative stats (input/output tokens, cost)
 - `prune: 3 pending` — batches queued, waiting for the trigger
 - `prune: summarizing…` — currently running the summarizer LLM call
 
@@ -225,13 +234,13 @@ The extension registers a status widget in the Pi footer that shows the current 
 - The `context_tree_query` tool is only active when the extension is loaded.
 - The `context_prune` tool is only activated in `agentic-auto` mode.
 - The summarizer call happens synchronously inside `turn_end`, adding latency between turns proportional to the summarizer model's response time.
-- The `/pruner original-tree` browser (a dedicated TUI tree view of the raw session) is not implemented in v1. Use Pi's built-in `/tree` command to navigate session history.
+- The `/pruner tree` browser shows pruned tool calls grouped under their summaries, but does not yet support recovering full original outputs inline (use `context_tree_query` for that).
 - Summary grouping across multiple turns (e.g., "compress the last 5 summaries") is a follow-up item.
 
 ## Follow-up ideas
 
 - Auto-summarize older unsummarized turns on `/pruner on`
 - Batch multiple turn summaries into a single meta-summary at compaction time
-- `/pruner original-tree` dedicated TUI browser
+- ~~`/pruner original-tree`~~ ✅ `/pruner tree` foldable tree browser — done
 - Configurable pruning policy (prune only large tool results, prune by token count threshold)
 - Tighter `/settings` integration once Pi exposes a settings UI API
