@@ -1,12 +1,16 @@
 import {
   type ContextPruneConfig,
+  type SummarizerStats,
   PRUNE_ON_MODES,
   STATUS_WIDGET_ID,
 } from "./types.js";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { saveConfig } from "./config.js";
+import { formatTokens, formatCost } from "./stats.js";
 import { Container, type Component, Text, SettingsList, type SettingItem } from "@mariozechner/pi-tui";
 import { DynamicBorder, getSettingsListTheme } from "@mariozechner/pi-coding-agent";
+import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
+import type { ToolCallIndexer } from "./indexer.js";
 
 /**
  * Wraps a SettingsList with a border + title, delegating all input handling
@@ -36,9 +40,13 @@ class SettingsOverlay extends Container {
 
 // ── Status widget text ──────────────────────────────────────────────────────
 
-export function pruneStatusText(config: ContextPruneConfig): string {
+export function pruneStatusText(config: ContextPruneConfig, stats?: SummarizerStats): string {
   const mode = PRUNE_ON_MODES.find((m) => m.value === config.pruneOn)?.label ?? config.pruneOn;
-  return `prune: ${config.enabled ? "ON" : "OFF"} (${mode})`;
+  let text = `prune: ${config.enabled ? "ON" : "OFF"} (${mode})`;
+  if (stats && stats.callCount > 0) {
+    text += ` │ ↑${formatTokens(stats.totalInputTokens)} ↓${formatTokens(stats.totalOutputTokens)} ${formatCost(stats.totalCost)}`;
+  }
+  return text;
 }
 
 // ── Subcommand list (for completions & interactive picker) ──────────────────
@@ -50,6 +58,8 @@ const SUBCOMMANDS = [
   { value: "status",  label: "status   — show status, model, and prune trigger" },
   { value: "model",   label: "model    — show or set the summarizer model" },
   { value: "prune-on", label: "prune-on — show or set the trigger mode" },
+  { value: "stats",   label: "stats    — show cumulative summarizer token/cost stats" },
+  { value: "tree",    label: "tree     — browse pruned tool calls in a foldable tree" },
   { value: "now",     label: "now      — flush pending tool calls immediately" },
   { value: "help",    label: "help     — show this help" },
 ] as const;
@@ -62,7 +72,7 @@ Usage:
   /pruner settings                        Interactive settings overlay
   /pruner on                               Enable context pruning
   /pruner off                              Disable context pruning
-  /pruner status                           Show status, model, and prune trigger
+  /pruner status                           Show status, model, prune trigger, and stats
   /pruner model                            Show the current summarizer model
   /pruner model <id>                       Set summarizer model (e.g. anthropic/claude-haiku-3-5)
   /pruner prune-on                         Show or interactively pick the trigger
@@ -71,6 +81,8 @@ Usage:
   /pruner prune-on on-demand               Only summarize when /pruner now runs
   /pruner prune-on agent-message           Summarize when the agent sends a final text response
   /pruner prune-on agentic-auto            LLM decides when to prune via context_prune tool
+  /pruner stats                            Show cumulative summarizer token/cost stats
+  /pruner tree                             Browse pruned tool calls in a foldable tree
   /pruner now                              Flush pending tool calls immediately
   /pruner help                             Show this help
 
@@ -83,6 +95,8 @@ export function registerCommands(
   currentConfig: { value: ContextPruneConfig },
   flushPending: (ctx: ExtensionCommandContext) => void,
   syncToolActivation: () => void,
+  getStats: () => SummarizerStats,
+  indexer: ToolCallIndexer,
 ): void {
   // Register the /pruner command
   pi.registerCommand("pruner", {
@@ -94,7 +108,7 @@ export function registerCommands(
       // Parse subcommand and remaining args from the raw argument string
       const parts = args.trim().split(/\s+/);
       let subcommand = parts[0] || undefined;
-      const subArgs = parts.slice(1); // e.g. ["model", "anthropic/claude-haiku-3-5"] or ["on"]
+      const subArgs = parts.slice(1); // e.g. ["model", "anthropic/claude-haiku-3-5"] or ["on"])
 
       // ── Bare /pruner → interactive picker ──
       if (!subcommand) {
@@ -175,7 +189,7 @@ export function registerCommands(
             }
             currentConfig.value = newConfig;
             saveConfig(newConfig);
-            ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(newConfig));
+            ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(newConfig, getStats()));
             // Toggle context_prune tool activation when config changes
             syncToolActivation();
           };
@@ -217,7 +231,7 @@ export function registerCommands(
           currentConfig.value = { ...currentConfig.value, enabled: true };
           saveConfig(currentConfig.value);
           ctx.ui.notify("Context pruning enabled.");
-          ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value));
+          ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value, getStats()));
           syncToolActivation();
           break;
         }
@@ -227,7 +241,7 @@ export function registerCommands(
           currentConfig.value = { ...currentConfig.value, enabled: false };
           saveConfig(currentConfig.value);
           ctx.ui.notify("Context pruning disabled.");
-          ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value));
+          ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value, getStats()));
           syncToolActivation();
           break;
         }
@@ -236,9 +250,47 @@ export function registerCommands(
         case "status": {
           const cfg = currentConfig.value;
           const mode = PRUNE_ON_MODES.find((m) => m.value === cfg.pruneOn)?.label ?? cfg.pruneOn;
+          const s = getStats();
+          const statsLine = s.callCount > 0
+            ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
+            : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled: ${cfg.enabled}\n  model:   ${cfg.summarizerModel}\n  trigger: ${mode}`,
+            `pruner status:\n  enabled: ${cfg.enabled}\n  model:   ${cfg.summarizerModel}\n  trigger: ${mode}${statsLine}`,
           );
+          break;
+        }
+
+        // ── /pruner tree ── foldable tree browser ──
+        case "tree": {
+          const roots = buildPruneTree(ctx, indexer);
+          if (roots.length === 0) {
+            ctx.ui.notify("No pruned tool calls found in this session.", "info");
+            break;
+          }
+
+          await ctx.ui.custom(
+            (_tui, theme, _keybindings, done) => {
+              const browser = new TreeBrowser(roots, theme, () => done(undefined));
+              return browser;
+            },
+            {
+              overlay: true,
+              overlayOptions: { width: "80%", maxHeight: "70%", anchor: "center" },
+            },
+          );
+          break;
+        }
+
+        // ── /pruner stats ──
+        case "stats": {
+          const s = getStats();
+          if (s.callCount === 0) {
+            ctx.ui.notify("pruner stats: no summarizer calls yet.");
+          } else {
+            ctx.ui.notify(
+              `pruner stats:\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`,
+            );
+          }
           break;
         }
 
@@ -269,7 +321,7 @@ export function registerCommands(
             currentConfig.value = { ...currentConfig.value, pruneOn: modeArg as ContextPruneConfig["pruneOn"] };
           }
           saveConfig(currentConfig.value);
-          ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value));
+          ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value, getStats()));
           syncToolActivation();
           break;
         }

@@ -34,15 +34,16 @@ pi-context-prune/
     ├── indexer.ts             # Runtime Map<toolCallId, ToolCallRecord> + session persistence
     ├── pruner.ts              # Filter context event messages (removes summarized ToolResultMessages)
     ├── query-tool.ts          # Register the context_tree_query tool for recovering pruned outputs
+    ├── stats.ts               # StatsAccumulator for cumulative summarizer token/cost tracking
     └── commands.ts            # /pruner command + interactive settings overlay + summary message renderer
 ```
 
 ### `index.ts` — Extension entry point
 Wires all modules together and registers Pi event handlers:
 - **`pendingBatches: CapturedBatch[]`** — queue of captured batches not yet summarized; drained by `flushPending`.
-- **`flushPending(ctx)`** — summarizes + indexes all pending batches in a **single LLM call** and injects one combined steer message. Sets status to "prune: summarizing…" while working, then restores "prune: ON/OFF". Called immediately on `every-turn` or `agentic-auto`, deferred to the trigger event for other modes.
-- **`session_start`** — loads config from `~/.pi/agent/context-prune/settings.json`, rebuilds the in-memory index, clears `pendingBatches`, updates the footer status widget, and notifies the user of the loaded state.
-- **`session_tree`** — rebuilds the index and clears `pendingBatches` after branch navigation (pending batches belong to the old branch).
+- **`flushPending(ctx)`** — summarizes + indexes all pending batches in a **single LLM call** and injects one combined steer message. Sets status to "prune: summarizing…" while working, then restores the status widget with stats (e.g. `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003`). Accumulates summarizer token/cost stats via `StatsAccumulator` and persists them to session. Called immediately on `every-turn` or `agentic-auto`, deferred to the trigger event for other modes.
+- **`session_start`** — loads config from `~/.pi/agent/context-prune/settings.json`, rebuilds the in-memory index and stats accumulator, clears `pendingBatches`, updates the footer status widget, and notifies the user of the loaded state.
+- **`session_tree`** — rebuilds the index and stats accumulator after branch navigation (pending batches and stats belong to the current branch).
 - **`turn_end`** — captures the batch, pushes to `pendingBatches`. Behavior depends on `pruneOn` mode:
   - `every-turn`: flushes immediately.
   - `agent-message`: if the turn has **no** tool results (i.e., a final text-only response), flushes pending batches; otherwise queues.
@@ -64,8 +65,10 @@ Single source of truth for all interfaces and constants:
   - `agentic-auto`: the LLM decides when to prune by calling the `context_prune` tool, guided by `AGENTIC_AUTO_SYSTEM_PROMPT`.
 - **`PRUNE_ON_MODES`** — `{ value, label }` array for interactive selectors.
 - **`ContextPruneConfig`** — `{ enabled, summarizerModel, pruneOn }` stored in `~/.pi/agent/context-prune/settings.json`.
+- **`SummarizerStats`** — cumulative token/cost stats: `{ totalInputTokens, totalOutputTokens, totalCost, callCount }`. Persisted via `pi.appendEntry(CUSTOM_TYPE_STATS, ...)`.
+- **`SummarizeResult`** — return type from summarizer: `{ summaryText, usage }` carrying both the markdown summary and LLM usage data.
 - **`SummaryMessageDetails`** — metadata attached to `context-prune-summary` custom messages.
-- Constants: `CUSTOM_TYPE_SUMMARY`, `CUSTOM_TYPE_INDEX`, `STATUS_WIDGET_ID`, `DEFAULT_CONFIG`, `CONTEXT_PRUNE_TOOL_NAME`, `AGENTIC_AUTO_SYSTEM_PROMPT`.
+- Constants: `CUSTOM_TYPE_SUMMARY`, `CUSTOM_TYPE_INDEX`, `CUSTOM_TYPE_STATS`, `STATUS_WIDGET_ID`, `DEFAULT_CONFIG`, `CONTEXT_PRUNE_TOOL_NAME`, `AGENTIC_AUTO_SYSTEM_PROMPT`.
 
 ### `src/config.ts` — Config persistence
 - **`SETTINGS_PATH`** — constant resolving to `~/.pi/agent/context-prune/settings.json` (global, project-independent).
@@ -79,8 +82,8 @@ Single source of truth for all interfaces and constants:
 
 ### `src/summarizer.ts` — LLM summarization
 - **`resolveModel(config, ctx)`** — resolves `config.summarizerModel` to a model instance. `"default"` returns `ctx.model`; `"provider/model-id"` splits on `/` and looks up via `ctx.modelRegistry.find(provider, modelId)` with a fallback to `ctx.model` + warning on failure.
-- **`summarizeBatch(batch, config, ctx)`** — summarizes a single `CapturedBatch` in one LLM call. Uses the `SYSTEM_PROMPT` and `<tool-call-batch>` XML wrapper. Returns markdown with a footer listing all summarized `toolCallId`s (backtick-wrapped). Returns `null` (and notifies the user via `ctx.ui.notify`) on failure.
-- **`summarizeBatches(batches, config, ctx)`** — summarizes multiple `CapturedBatch` objects in a **single LLM call**. If only one batch, delegates to `summarizeBatch`. For 2+ batches, uses `BATCHED_SYSTEM_PROMPT` (which instructs the LLM to group by turn) and `<tool-call-batches>` XML wrapper, with each batch rendered as a `=== Turn N ===` section via `serializeBatchesForSummarizer`. The footer lists ALL `toolCallId`s across all batches. Returns `null` on failure.
+- **`summarizeBatch(batch, config, ctx)`** — summarizes a single `CapturedBatch` in one LLM call. Returns `SummarizeResult` (summary text + usage) on success, `null` on failure.
+- **`summarizeBatches(batches, config, ctx)`** — summarizes multiple `CapturedBatch` objects in a **single LLM call**. If only one batch, delegates to `summarizeBatch`. Returns `SummarizeResult` on success, `null` on failure.
 
 ### `src/indexer.ts` — `ToolCallIndexer` class
 Maintains the runtime `Map<toolCallId, ToolCallRecord>` and handles session persistence:
@@ -99,9 +102,20 @@ Registers a Pi tool that allows the LLM (or user) to recover pruned outputs:
 - IDs not found in the index return a "(not found)" notice rather than an error.
 - Returns `{ content, details: { results } }` with found records in the `details` field.
 
+### `src/stats.ts` — `StatsAccumulator` class + formatting helpers
+Accumulates cumulative token/cost stats for summarizer LLM calls and persists them to the session:
+- **`add(usage)`** — accumulates one LLM call's usage (input tokens, output tokens, total cost).
+- **`getStats()`** — returns a `SummarizerStats` snapshot.
+- **`reset()`** — clears all accumulated stats to zero.
+- **`reconstructFromSession(ctx)`** — scans session entries for `CUSTOM_TYPE_STATS` and restores the last snapshot.
+- **`persist(pi)`** — writes current stats as a session entry via `pi.appendEntry(CUSTOM_TYPE_STATS, ...)`.
+- **`formatTokens(n)`** — formats token counts like Pi's footer (e.g. `1.2k`, `340`).
+- **`formatCost(n)`** — formats cost like `$0.003` or `<$0.001`.
+- **`statsSuffix(stats)`** — builds the status widget suffix string (e.g. ` │ ↑1.2k ↓340 $0.003`) or `""` if no calls yet.
+
 ### `src/commands.ts` — `/pruner` command + settings overlay + renderer
 - **`SettingsOverlay`** — a TUI `Container` subclass that wraps a `SettingsList` with a `DynamicBorder` + title. Forwards `handleInput` and `invalidate` to the inner list so keyboard navigation works inside the overlay.
-- **`pruneStatusText(config)`** — formats the footer widget string including mode label: e.g. `prune: ON (Every turn)`.
+- **`pruneStatusText(config, stats?)`** — formats the footer widget string including mode label and optional stats suffix: e.g. `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003`.
 - **`SUBCOMMANDS`** — `{ value, label }` array for tab-completion and the interactive picker.
 - **`HELP_TEXT`** — full explanation of all subcommands, including `agent-message` and `agentic-auto` modes.
 - **`getArgumentCompletions(prefix)`** — filters `SUBCOMMANDS` by prefix for tab-completion.
@@ -112,7 +126,8 @@ Registers a Pi tool that allows the LLM (or user) to recover pruned outputs:
   3. **Summarizer model** — shows current value; pressing Enter opens a searchable submenu listing `"default"` plus all models from `ctx.modelRegistry.getAvailable()`. Selecting a model saves immediately.
   All changes are persisted to `settings.json` on every toggle and the footer widget is updated.
 - **`/pruner on|off`** — enables/disables pruning, saves config, updates footer widget.
-- **`/pruner status`** — shows enabled state, summarizer model, and prune trigger.
+- **`/pruner status`** — shows enabled state, summarizer model, prune trigger, and cumulative summarizer stats (calls, tokens, cost).
+- **`/pruner stats`** — shows detailed cumulative summarizer token/cost stats.
 - **`/pruner model [value]`** — gets or sets the summarizer model (e.g. `anthropic/claude-haiku-3-5`).
 - **`/pruner prune-on [value]`** — gets or sets the trigger mode; bare form shows `ctx.ui.select()` picker over `PRUNE_ON_MODES`.
 - **`/pruner now`** — calls `flushPending(ctx)` immediately; guards against pruning being disabled.
@@ -136,4 +151,7 @@ Registers a Pi tool that allows the LLM (or user) to recover pruned outputs:
 | `agent_end` safety-net flush | Prevents orphaned pending batches if the agent loop terminates before a text-only turn fires in `agent-message` mode |
 | `SettingsOverlay` wrapper | Required because `Container` alone doesn't forward keyboard input — the wrapper delegates `handleInput`/`invalidate` to the inner `SettingsList` |
 | `context` handler returns `undefined` when no pruning occurs | Avoids unnecessary message-list reconstruction when nothing was filtered |
+| Stats persistence via `CUSTOM_TYPE_STATS` | Stats are snapshots persisted alongside index entries; on `session_start` / `session_tree`, the last snapshot is applied, matching the same lifecycle as the indexer |
+| `SummarizeResult` return type | Summarizer functions return `{ summaryText, usage }` so callers can accumulate token/cost data without side effects in the summarizer module |
+| Status widget includes stats suffix | Footer shows `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003` after summarizer calls, giving users visibility into pruner overhead |
 | Auth via `ctx.modelRegistry.getApiKeyAndHeaders()` | Explicit credential resolution for the summarizer LLM call, with error notification on failure |

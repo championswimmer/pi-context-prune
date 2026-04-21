@@ -50,6 +50,9 @@ export const CUSTOM_TYPE_SUMMARY = "context-prune-summary";
 /** customType for index persistence entries (NOT in LLM context) */
 export const CUSTOM_TYPE_INDEX = "context-prune-index";
 
+/** customType for stats persistence entries (NOT in LLM context) */
+export const CUSTOM_TYPE_STATS = "context-prune-stats";
+
 /** Footer status widget ID */
 export const STATUS_WIDGET_ID = "context-prune";
 
@@ -60,9 +63,14 @@ export const CONTEXT_PRUNE_TOOL_NAME = "context_prune";
 export const AGENTIC_AUTO_SYSTEM_PROMPT = `[Context Prune — Agentic Auto Mode]
 You have access to the context_prune tool. Use it to summarize and compact preceding tool-call results from context.
 
+Why use context_prune:
+- Pruning reduces the size of the context, which lets you work on longer and more complex problems without hitting context limits.
+- Summaries keep the key information accessible while freeing up space for new reasoning and tool calls.
+
 When to use context_prune:
 - After completing a group of 8–10 related tool calls (e.g., a multi-step file edit, search, or analysis sequence).
 - When context is getting large and you want to keep it manageable for future reasoning.
+- You should use context_prune at least once after every 12–15 tool calls to prevent context from growing indefinitely.
 
 When NOT to use context_prune:
 - Do NOT call it after every 2–3 tool calls. Only use it after a meaningful batch of work is done.
@@ -77,11 +85,11 @@ What happens when you call context_prune:
 
 /**
  * When summarization (and context pruning) is triggered.
- * - "every-turn"     : after every assistant turn that calls tools (default)
+ * - "every-turn"     : after every assistant turn that calls tools
  * - "on-context-tag" : batches up turns and flushes when the model calls context_tag
  * - "on-demand"      : only when the user runs /pruner now
  * - "agent-message"  : batches up turns and flushes when the agent sends a final text response
- *                       (a turn with no tool calls), or when the agent loop ends
+ *                       (a turn with no tool calls), or when the agent loop ends (default)
  * - "agentic-auto"   : the LLM agent decides when to prune by calling the context_prune tool;
  *                       the tool is only active in this mode and guided by prompt instructions
  */
@@ -113,7 +121,7 @@ export interface ContextPruneConfig {
 export const DEFAULT_CONFIG: ContextPruneConfig = {
   enabled: false,
   summarizerModel: "default",
-  pruneOn: "every-turn",
+  pruneOn: "agent-message",
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────
@@ -175,4 +183,44 @@ export interface SummaryMessageDetails {
   toolNames: string[];
   turnIndex: number;
   timestamp: number;
+}
+
+// ── Summarizer stats ────────────────────────────────────────────────────────
+
+/**
+ * Cumulative token/cost stats for summarizer LLM calls.
+ * Persisted via pi.appendEntry(CUSTOM_TYPE_STATS, ...) so stats survive
+ * restarts and branch navigation.
+ */
+export interface SummarizerStats {
+  /** Cumulative input tokens across all summarizer calls */
+  totalInputTokens: number;
+  /** Cumulative output tokens across all summarizer calls */
+  totalOutputTokens: number;
+  /** Cumulative cost in USD across all summarizer calls */
+  totalCost: number;
+  /** Number of summarizer LLM calls made */
+  callCount: number;
+}
+
+/**
+ * Result of a summarization call — the summary text plus LLM usage data.
+ */
+export interface SummarizeResult {
+  summaryText: string;
+  /** Usage data from the LLM response (tokens + cost) */
+  usage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+    cost: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+      total: number;
+    };
+  };
 }

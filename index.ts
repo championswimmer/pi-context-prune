@@ -20,9 +20,10 @@ import { summarizeBatches } from "./src/summarizer.js";
 import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
 import { registerQueryTool } from "./src/query-tool.js";
-import { registerCommands } from "./src/commands.js";
+import { registerCommands, pruneStatusText } from "./src/commands.js";
 import type { ContextPruneConfig, CapturedBatch } from "./src/types.js";
 import { STATUS_WIDGET_ID, CONTEXT_PRUNE_TOOL_NAME, AGENTIC_AUTO_SYSTEM_PROMPT } from "./src/types.js";
+import { StatsAccumulator } from "./src/stats.js";
 import { registerContextPruneTool } from "./src/context-prune-tool.js";
 
 export default function (pi: ExtensionAPI) {
@@ -33,6 +34,9 @@ export default function (pi: ExtensionAPI) {
 
   // Shared indexer — rebuilt from session on every session_start / session_tree
   const indexer = new ToolCallIndexer();
+
+  // Shared stats accumulator — tracks cumulative token/cost stats for summarizer calls
+  const statsAccum = new StatsAccumulator();
 
   // Pending batches — accumulated until the prune trigger fires
   const pendingBatches: CapturedBatch[] = [];
@@ -46,9 +50,13 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setStatus(STATUS_WIDGET_ID, "prune: summarizing…");
 
     // Batch all pending batches into a single LLM call
-    const summaryText = await summarizeBatches(batches, currentConfig.value, ctx);
+    const result = await summarizeBatches(batches, currentConfig.value, ctx);
 
-    if (summaryText) {
+    if (result) {
+      // Accumulate token/cost stats from this summarizer call
+      statsAccum.add(result.usage);
+      statsAccum.persist(pi);
+
       // Index ALL batches and send one combined summary message
       for (const batch of batches) {
         indexer.addBatch(batch, pi);
@@ -60,7 +68,7 @@ export default function (pi: ExtensionAPI) {
       pi.sendMessage(
         {
           customType: "context-prune-summary",
-          content: summaryText,
+          content: result.summaryText,
           display: true,
           details: {
             toolCallIds: allToolCallIds,
@@ -73,10 +81,7 @@ export default function (pi: ExtensionAPI) {
       );
     }
 
-    ctx.ui.setStatus(
-      STATUS_WIDGET_ID,
-      currentConfig.value.enabled ? "prune: ON" : "prune: OFF"
-    );
+    ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value, statsAccum.getStats()));
   };
 
   // ── Helper: toggle context_prune tool activation based on config ───────────
@@ -96,7 +101,7 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
-  // ── session_start: restore config + index ─────────────────────────────────
+  // ── session_start: restore config + index + stats ────────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
     // Load config from ~/.pi/agent/context-prune/settings.json
     currentConfig.value = await loadConfig();
@@ -104,11 +109,14 @@ export default function (pi: ExtensionAPI) {
     // Rebuild in-memory index from persisted session entries
     indexer.reconstructFromSession(ctx);
 
+    // Rebuild stats accumulator from persisted session entries
+    statsAccum.reconstructFromSession(ctx);
+
     // Clear any batches queued before the session reload
     pendingBatches.length = 0;
 
     // Update footer status
-    ctx.ui.setStatus(STATUS_WIDGET_ID, currentConfig.value.enabled ? "prune: ON" : "prune: OFF");
+    ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value, statsAccum.getStats()));
 
     // Toggle context_prune tool activation for agentic-auto mode
     syncToolActivation();
@@ -119,9 +127,10 @@ export default function (pi: ExtensionAPI) {
     );
   });
 
-  // Rebuild index after tree navigation too (branch may have different history)
+  // Rebuild index and stats after tree navigation too (branch may have different history)
   pi.on("session_tree", async (_event, ctx) => {
     indexer.reconstructFromSession(ctx);
+    statsAccum.reconstructFromSession(ctx);
     // Pending batches belong to the old branch — discard them
     pendingBatches.length = 0;
   });
@@ -226,5 +235,5 @@ export default function (pi: ExtensionAPI) {
   registerContextPruneTool(pi, flushPending);
 
   // ── Register /pruner command + summary message renderer ────────────
-  registerCommands(pi, currentConfig, flushPending, syncToolActivation);
+  registerCommands(pi, currentConfig, flushPending, syncToolActivation, () => statsAccum.getStats(), indexer);
 }

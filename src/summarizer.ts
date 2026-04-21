@@ -1,6 +1,6 @@
 import { complete } from "@mariozechner/pi-ai";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { CapturedBatch, ContextPruneConfig } from "./types.js";
+import type { CapturedBatch, ContextPruneConfig, SummarizeResult } from "./types.js";
 import { serializeBatchForSummarizer, serializeBatchesForSummarizer } from "./batch-capture.js";
 
 const SYSTEM_PROMPT = `You are summarizing a batch of tool calls made by an AI coding assistant.
@@ -62,7 +62,7 @@ export async function summarizeBatch(
   batch: CapturedBatch,
   config: ContextPruneConfig,
   ctx: ExtensionContext
-): Promise<string | null> {
+): Promise<SummarizeResult | null> {
   try {
     const model = resolveModel(config, ctx);
 
@@ -101,7 +101,10 @@ export async function summarizeBatch(
       `\n\n---\n**Summarized toolCallIds**: ${idList}\n` +
       `Use \`context_tree_query\` with these IDs to retrieve the original full outputs.`;
 
-    return llmText + footer;
+    return {
+      summaryText: llmText + footer,
+      usage: response.usage,
+    };
   } catch (err: any) {
     ctx.ui.notify(
       `pruner: summarization failed: ${err.message}`,
@@ -120,7 +123,7 @@ export async function summarizeBatches(
   batches: CapturedBatch[],
   config: ContextPruneConfig,
   ctx: ExtensionContext
-): Promise<string | null> {
+): Promise<SummarizeResult | null> {
   if (batches.length === 0) return null;
   // Single batch — delegate to the single-batch path for a simpler prompt
   if (batches.length === 1) return summarizeBatch(batches[0], config, ctx);
@@ -164,7 +167,10 @@ export async function summarizeBatches(
       `\n\n---\n**Summarized toolCallIds**: ${idList}\n` +
       `Use \`context_tree_query\` with these IDs to retrieve the original full outputs.`;
 
-    return llmText + footer;
+    return {
+      summaryText: llmText + footer,
+      usage: response.usage,
+    };
   } catch (err: any) {
     ctx.ui.notify(
       `pruner: batch summarization failed: ${err.message}`,
