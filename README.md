@@ -4,6 +4,8 @@ A [Pi coding-agent](https://github.com/badlogic/pi-mono) extension that **summar
 
 ## Why
 
+> 📖 For a deep dive into how pruning works, how prefix caching interacts with it, and the research behind summarization-based context management, see [**PRUNING.md**](PRUNING.md).
+
 As long agent sessions grow, every tool call adds token-heavy output to the context window. Most of it is not needed verbatim after the first use. This extension:
 
 1. **Detects** when an assistant turn finishes calling tools (`turn_end`)
