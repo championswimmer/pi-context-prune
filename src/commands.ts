@@ -66,6 +66,26 @@ const SUBCOMMANDS = [
 
 // ── Help text ───────────────────────────────────────────────────────────────
 
+const PRUNE_MODE_GUIDANCE: Record<ContextPruneConfig["pruneOn"], string> = {
+  "every-turn": "Debugging only. Prunes after every tool turn, which is easiest to inspect but churns provider prompt caches the most.",
+  "on-context-tag": "Good for milestone-based workflows. Flushes when context_tag is called; requires the pi-context extension for automatic triggering.",
+  "on-demand": "Maximum manual control. Nothing is pruned until you run /pruner now, so cache invalidation happens only when you choose.",
+  "agent-message": "Recommended default. Batches tool work and prunes once after the final text reply, giving the best balance of automation, context savings, and cache stability.",
+  "agentic-auto": "Useful for longer autonomous runs. Lets the model call context_prune, but depends on the model using it sparingly.",
+};
+
+function pruneModeGuidance(mode: ContextPruneConfig["pruneOn"]): string {
+  return PRUNE_MODE_GUIDANCE[mode] ?? "Controls when summarized tool outputs replace raw tool results in future context.";
+}
+
+function pruneModeLabel(mode: ContextPruneConfig["pruneOn"]): string {
+  return PRUNE_ON_MODES.find((entry) => entry.value === mode)?.label ?? mode;
+}
+
+function pruneTriggerDescription(mode: ContextPruneConfig["pruneOn"]): string {
+  return `When to summarize tool outputs. Current mode: ${pruneModeLabel(mode)} (${mode}) — ${pruneModeGuidance(mode)} Press Enter/Space to cycle through modes.`;
+}
+
 const HELP_TEXT = `pruner — automatically summarizes tool-call outputs to keep context lean.
 
 Usage:
@@ -152,7 +172,7 @@ export function registerCommands(
               label: "Prune trigger",
               values: PRUNE_ON_MODES.map((m) => m.value),
               currentValue: config.pruneOn,
-              description: "When to summarize tool outputs",
+              description: pruneTriggerDescription(config.pruneOn),
             },
             {
               id: "summarizerModel",
@@ -192,23 +212,30 @@ export function registerCommands(
             },
           ];
 
+          let settingsList: SettingsList;
+
           const onChange = (id: string, newValue: string) => {
             const newConfig = { ...currentConfig.value };
             if (id === "enabled") {
               newConfig.enabled = newValue === "true";
             } else if (id === "pruneOn") {
               newConfig.pruneOn = newValue as ContextPruneConfig["pruneOn"];
+              const pruneTriggerItem = items.find((item) => item.id === "pruneOn");
+              if (pruneTriggerItem) {
+                pruneTriggerItem.description = pruneTriggerDescription(newConfig.pruneOn);
+              }
             } else if (id === "summarizerModel") {
               newConfig.summarizerModel = newValue;
             }
             currentConfig.value = newConfig;
             saveConfig(newConfig);
             ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(newConfig, getStats()));
+            settingsList?.invalidate();
             // Toggle context_prune tool activation when config changes
             syncToolActivation();
           };
 
-          const settingsList = new SettingsList(
+          settingsList = new SettingsList(
             items,
             10,
             getSettingsListTheme(),
