@@ -128,9 +128,12 @@ The extension registers the `/pruner` command:
 | `/pruner settings` | Opens an interactive settings overlay |
 | `/pruner on` | Enable pruning |
 | `/pruner off` | Disable pruning |
-| `/pruner status` | Show enabled state, summarizer model, prune trigger, and cumulative stats |
+| `/pruner status` | Show enabled state, summarizer model, thinking level, prune trigger, and cumulative stats |
 | `/pruner model` | Show current summarizer model |
 | `/pruner model <id>` | Set summarizer model (e.g. `anthropic/claude-haiku-3-5`) |
+| `/pruner model <id>:<thinking>` | Set summarizer model and thinking together (e.g. `openai/gpt-5-mini:low`) |
+| `/pruner thinking` | Show current summarizer thinking level |
+| `/pruner thinking <level>` | Set summarizer thinking (`default`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`) |
 | `/pruner prune-on` | Interactive picker over all trigger modes |
 | `/pruner prune-on <mode>` | Set trigger mode directly |
 | `/pruner stats` | Show cumulative summarizer token/cost stats |
@@ -140,11 +143,12 @@ The extension registers the `/pruner` command:
 
 ### Settings overlay
 
-`/pruner settings` opens a TUI overlay with three interactive items:
+`/pruner settings` opens a TUI overlay with four interactive items:
 
 1. **Enabled** — toggle pruning on/off
 2. **Prune trigger** — cycle through all five `pruneOn` modes
 3. **Summarizer model** — press Enter to open a searchable submenu listing `"default"` plus all available models
+4. **Summarizer thinking** — cycle through the thinking/reasoning level used for summarizer calls
 
 All changes are saved immediately to `~/.pi/agent/context-prune/settings.json` and reflected in the footer status widget.
 
@@ -180,6 +184,7 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 {
   "enabled": false,
   "summarizerModel": "default",
+  "summarizerThinking": "default",
   "pruneOn": "agent-message"
 }
 ```
@@ -188,9 +193,13 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 |---|---|---|
 | `enabled` | `true` / `false` | `false` |
 | `summarizerModel` | `"default"` or `"provider/model-id"` | `"default"` |
+| `summarizerThinking` | `"default"`, `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` | `"default"` |
 | `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"agent-message"` |
 
-- `"default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
+- `summarizerModel: "default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
+- `summarizerThinking: "default"` preserves old behavior: no explicit thinking/reasoning option is added to summarizer calls.
+- `summarizerThinking: "off"` requests no summarizer reasoning where the provider adapter supports an explicit disable path. Some providers may still fall back to their own default behavior.
+- `"minimal"`, `"low"`, `"medium"`, `"high"`, and `"xhigh"` request that thinking level for summarizer calls where supported. For cheap background summarization, prefer `"minimal"` or `"low"` with a small/fast model.
 - Settings are persisted on every change via the `/pruner` command or the settings overlay.
 
 ### Choosing a Summarizer Model
@@ -210,7 +219,12 @@ Set it with:
 
 ```bash
 /pruner model openai/gpt-4.1-mini
-# or via the interactive settings overlay
+/pruner thinking low
+
+# Or set both at once:
+/pruner model openai/gpt-4.1-mini:low
+
+# Or via the interactive settings overlay
 /pruner settings
 ```
 
@@ -218,7 +232,8 @@ Or directly in `~/.pi/agent/context-prune/settings.json`:
 
 ```json
 {
-  "summarizerModel": "openrouter/qwen/qwen3-30b-a3b"
+  "summarizerModel": "openrouter/qwen/qwen3-30b-a3b",
+  "summarizerThinking": "low"
 }
 ```
 

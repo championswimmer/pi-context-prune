@@ -3,6 +3,7 @@ import {
   type SummarizerStats,
   PRUNE_ON_MODES,
   STATUS_WIDGET_ID,
+  SUMMARIZER_THINKING_LEVELS,
 } from "./types.js";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { saveConfig } from "./config.js";
@@ -55,8 +56,9 @@ const SUBCOMMANDS = [
   { value: "settings", label: "settings — interactive settings overlay" },
   { value: "on",       label: "on       — enable context pruning" },
   { value: "off",      label: "off      — disable context pruning" },
-  { value: "status",  label: "status   — show status, model, and prune trigger" },
+  { value: "status",  label: "status   — show status, model, thinking, and prune trigger" },
   { value: "model",   label: "model    — show or set the summarizer model" },
+  { value: "thinking", label: "thinking — show or set the summarizer thinking level" },
   { value: "prune-on", label: "prune-on — show or set the trigger mode" },
   { value: "stats",   label: "stats    — show cumulative summarizer token/cost stats" },
   { value: "tree",    label: "tree     — browse pruned tool calls in a foldable tree" },
@@ -82,6 +84,40 @@ function pruneModeLabel(mode: ContextPruneConfig["pruneOn"]): string {
   return PRUNE_ON_MODES.find((entry) => entry.value === mode)?.label ?? mode;
 }
 
+function summarizerThinkingLabel(level: ContextPruneConfig["summarizerThinking"]): string {
+  return SUMMARIZER_THINKING_LEVELS.find((entry) => entry.value === level)?.label ?? level;
+}
+
+function summarizerThinkingDescription(level: ContextPruneConfig["summarizerThinking"]): string {
+  if (level === "default") {
+    return "Preserve old behavior: send no explicit thinking option for summarizer calls.";
+  }
+  if (level === "off") {
+    return "Request no summarizer reasoning where the provider adapter supports it; some providers may fall back to their default.";
+  }
+  return `Request ${level} thinking/reasoning for summarizer calls where supported.`;
+}
+
+function parseModelAndThinkingArg(
+  value: string,
+): { model: string; thinking?: ContextPruneConfig["summarizerThinking"]; error?: string } {
+  const separatorIndex = value.lastIndexOf(":");
+  if (separatorIndex === -1) {
+    return { model: value };
+  }
+
+  const model = value.slice(0, separatorIndex);
+  const suffix = value.slice(separatorIndex + 1);
+  const thinking = SUMMARIZER_THINKING_LEVELS.find((level) => level.value === suffix)?.value;
+  if (!model || !thinking) {
+    return {
+      model: value,
+      error: `Invalid model thinking suffix: ${suffix}. Use one of: ${SUMMARIZER_THINKING_LEVELS.map((level) => level.value).join(", ")}.`,
+    };
+  }
+  return { model, thinking };
+}
+
 function pruneTriggerDescription(mode: ContextPruneConfig["pruneOn"]): string {
   return `When to summarize tool outputs. Current mode: ${pruneModeLabel(mode)} (${mode}) — ${pruneModeGuidance(mode)} Press Enter/Space to cycle through modes.`;
 }
@@ -95,6 +131,9 @@ Usage:
   /pruner status                           Show status, model, prune trigger, and stats
   /pruner model                            Show the current summarizer model
   /pruner model <id>                       Set summarizer model (e.g. anthropic/claude-haiku-3-5)
+  /pruner model <id>:<thinking>            Set summarizer model and thinking together (e.g. openai/gpt-5-mini:low)
+  /pruner thinking                         Show the current summarizer thinking level
+  /pruner thinking <level>                 Set summarizer thinking: default, off, minimal, low, medium, high, xhigh
   /pruner prune-on                         Show or interactively pick the trigger
   /pruner prune-on every-turn              Summarize after every tool-calling turn (debugging only; worst for prompt cache churn)
   /pruner prune-on on-context-tag          Summarize when context_tag is called (requires pi-context extension)
@@ -210,9 +249,17 @@ export function registerCommands(
                 );
               },
             },
+            {
+              id: "summarizerThinking",
+              label: "Summarizer thinking",
+              values: SUMMARIZER_THINKING_LEVELS.map((level) => level.value),
+              currentValue: config.summarizerThinking,
+              description: summarizerThinkingDescription(config.summarizerThinking),
+            },
           ];
 
           let settingsList: SettingsList;
+          let closeSettingsOverlay = () => {};
 
           const onChange = (id: string, newValue: string) => {
             const newConfig = { ...currentConfig.value };
@@ -226,6 +273,12 @@ export function registerCommands(
               }
             } else if (id === "summarizerModel") {
               newConfig.summarizerModel = newValue;
+            } else if (id === "summarizerThinking") {
+              newConfig.summarizerThinking = newValue as ContextPruneConfig["summarizerThinking"];
+              const thinkingItem = items.find((item) => item.id === "summarizerThinking");
+              if (thinkingItem) {
+                thinkingItem.description = summarizerThinkingDescription(newConfig.summarizerThinking);
+              }
             }
             currentConfig.value = newConfig;
             saveConfig(newConfig);
@@ -240,7 +293,7 @@ export function registerCommands(
             10,
             getSettingsListTheme(),
             onChange,
-            () => {}, // onCancel — just close the overlay
+            () => closeSettingsOverlay(), // onCancel — close the overlay
             { enableSearch: false },
           );
 
@@ -250,13 +303,7 @@ export function registerCommands(
           // the custom UI closes and the promise resolves.
           await ctx.ui.custom(
             (_tui, _theme, _keybindings, done) => {
-              // Wrap onCancel to call done() so the custom UI closes when Escape is pressed
-              const originalOnCancel = settingsList.onCancel;
-              settingsList.onCancel = () => {
-                originalOnCancel();
-                done(undefined);
-              };
-
+              closeSettingsOverlay = () => done(undefined);
               return new SettingsOverlay("pruner settings", settingsList);
             },
             {
@@ -296,7 +343,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled: ${cfg.enabled}\n  model:   ${cfg.summarizerModel}\n  trigger: ${mode}${statsLine}`,
+            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}${statsLine}`,
           );
           break;
         }
@@ -339,12 +386,50 @@ export function registerCommands(
         case "model": {
           const modelArg = subArgs[0];
           if (!modelArg) {
-            ctx.ui.notify(`Current summarizer model: ${currentConfig.value.summarizerModel}`);
+            ctx.ui.notify(
+              `Current summarizer model: ${currentConfig.value.summarizerModel}\nCurrent summarizer thinking: ${summarizerThinkingLabel(currentConfig.value.summarizerThinking)} (${currentConfig.value.summarizerThinking})`,
+            );
           } else {
-            currentConfig.value = { ...currentConfig.value, summarizerModel: modelArg };
+            const parsed = parseModelAndThinkingArg(modelArg);
+            if (parsed.error) {
+              ctx.ui.notify(parsed.error, "warning");
+              return;
+            }
+            currentConfig.value = {
+              ...currentConfig.value,
+              summarizerModel: parsed.model,
+              summarizerThinking: parsed.thinking ?? currentConfig.value.summarizerThinking,
+            };
             saveConfig(currentConfig.value);
-            ctx.ui.notify(`Summarizer model set to: ${modelArg}`);
+            const thinkingText = parsed.thinking ? ` with thinking ${parsed.thinking}` : "";
+            ctx.ui.notify(`Summarizer model set to: ${parsed.model}${thinkingText}`);
           }
+          break;
+        }
+
+        // ── /pruner thinking [value] ──
+        case "thinking": {
+          const thinkingArg = subArgs[0];
+          if (!thinkingArg) {
+            ctx.ui.notify(
+              `Current summarizer thinking: ${summarizerThinkingLabel(currentConfig.value.summarizerThinking)} (${currentConfig.value.summarizerThinking})`,
+            );
+            return;
+          }
+          if (SUMMARIZER_THINKING_LEVELS.some((level) => level.value === thinkingArg)) {
+            currentConfig.value = {
+              ...currentConfig.value,
+              summarizerThinking: thinkingArg as ContextPruneConfig["summarizerThinking"],
+            };
+          } else {
+            ctx.ui.notify(
+              `Invalid summarizer thinking level: ${thinkingArg}. Use one of: ${SUMMARIZER_THINKING_LEVELS.map((level) => level.value).join(", ")}.`,
+              "warning",
+            );
+            return;
+          }
+          saveConfig(currentConfig.value);
+          ctx.ui.notify(`Summarizer thinking set to: ${currentConfig.value.summarizerThinking}`);
           break;
         }
 
