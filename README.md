@@ -193,6 +193,35 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 - `"default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
 - Settings are persisted on every change via the `/pruner` command or the settings overlay.
 
+### Choosing a Summarizer Model
+
+The default (`"default"`) reuses whatever model you have active in Pi. **This is convenient but wasteful** — you don't need a powerful coding model to write a bullet-point summary of tool outputs. Using a cheaper, faster model here reduces both latency and cost without any quality trade-off.
+
+> **Rule of thumb:** pick the smallest/fastest model available on your current subscription or API plan.
+
+| Subscription / API plan | Recommended summarizer model |
+|---|---|
+| GitHub Copilot / Codex | `openai/gpt-4.1-mini` or `google/gemini-2.5-flash` or `xai/grok-3-fast` |
+| OpenRouter | `openrouter/qwen/qwen3-30b-a3b` (fast MoE, very cheap) |
+| Anthropic direct | `anthropic/claude-haiku-3-5` |
+| Google AI direct | `google/gemini-2.5-flash` |
+
+Set it with:
+
+```bash
+/pruner model openai/gpt-4.1-mini
+# or via the interactive settings overlay
+/pruner settings
+```
+
+Or directly in `~/.pi/agent/context-prune/settings.json`:
+
+```json
+{
+  "summarizerModel": "openrouter/qwen/qwen3-30b-a3b"
+}
+```
+
 ## Architecture
 
 ```
