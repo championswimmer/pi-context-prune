@@ -1,6 +1,6 @@
 {
   "name": "pi-context-prune",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Pi extension package for pruning future context while preserving original tool-call history.",
   "type": "module",
   "scripts": {
