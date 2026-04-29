@@ -1,6 +1,6 @@
 import { complete } from "@mariozechner/pi-ai";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { CapturedBatch, ContextPruneConfig, SummarizeResult } from "./types.js";
+import type { CapturedBatch, ContextPruneConfig, SummarizerThinking, SummarizeResult } from "./types.js";
 import { serializeBatchForSummarizer, serializeBatchesForSummarizer } from "./batch-capture.js";
 
 const SYSTEM_PROMPT = `You are summarizing a batch of tool calls made by an AI coding assistant.
@@ -19,6 +19,19 @@ For each turn, provide a concise summary of all tool calls in that turn:
 - Any findings the future conversation needs to remember
 
 Keep each tool call to 1-3 bullet points. Group by turn. Be concise.`;
+
+export function summarizerThinkingOptions(config: ContextPruneConfig): Record<string, unknown> {
+  const level: SummarizerThinking = config.summarizerThinking;
+  if (level === "default") {
+    return {};
+  }
+
+  // complete() accepts provider-level options. For reasoning-capable providers,
+  // pi-ai adapters translate reasoningEffort into the provider-specific field.
+  // "off" intentionally sends no effort; adapters that support explicit disable
+  // handle that the same way as an absent effort, while preserving compatibility.
+  return { reasoningEffort: level === "off" ? undefined : level };
+}
 
 /**
  * Returns the model to use for summarization.
@@ -87,7 +100,7 @@ export async function summarizeBatch(
           },
         ],
       },
-      { apiKey: auth.apiKey, headers: auth.headers }
+      { apiKey: auth.apiKey, headers: auth.headers, ...summarizerThinkingOptions(config) }
     );
 
     const llmText = response.content
@@ -152,7 +165,7 @@ export async function summarizeBatches(
           },
         ],
       },
-      { apiKey: auth.apiKey, headers: auth.headers }
+      { apiKey: auth.apiKey, headers: auth.headers, ...summarizerThinkingOptions(config) }
     );
 
     const llmText = response.content

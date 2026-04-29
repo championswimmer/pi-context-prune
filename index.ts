@@ -22,14 +22,22 @@ import { pruneMessages } from "./src/pruner.js";
 import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, pruneStatusText } from "./src/commands.js";
 import type { ContextPruneConfig, CapturedBatch, IndexEntryData } from "./src/types.js";
-import { STATUS_WIDGET_ID, CONTEXT_PRUNE_TOOL_NAME, AGENTIC_AUTO_SYSTEM_PROMPT, CUSTOM_TYPE_SUMMARY, CUSTOM_TYPE_INDEX, CUSTOM_TYPE_STATS } from "./src/types.js";
+import {
+  DEFAULT_CONFIG,
+  STATUS_WIDGET_ID,
+  CONTEXT_PRUNE_TOOL_NAME,
+  AGENTIC_AUTO_SYSTEM_PROMPT,
+  CUSTOM_TYPE_SUMMARY,
+  CUSTOM_TYPE_INDEX,
+  CUSTOM_TYPE_STATS,
+} from "./src/types.js";
 import { StatsAccumulator } from "./src/stats.js";
 import { registerContextPruneTool } from "./src/context-prune-tool.js";
 
 export default function (pi: ExtensionAPI) {
   // Shared mutable config reference — updated by /pruner commands
   const currentConfig: { value: ContextPruneConfig } = {
-    value: { enabled: false, summarizerModel: "default", pruneOn: "every-turn" },
+    value: { ...DEFAULT_CONFIG, pruneOn: "every-turn" },
   };
 
   // Shared indexer — rebuilt from session on every session_start / session_tree

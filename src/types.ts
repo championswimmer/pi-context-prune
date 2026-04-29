@@ -95,6 +95,20 @@ What happens when you call context_prune:
  */
 export type PruneOn = "every-turn" | "on-context-tag" | "on-demand" | "agent-message" | "agentic-auto";
 
+/** Thinking/reasoning level requested for summarizer LLM calls. */
+export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+/** Choices for the summarizer thinking setting (used by commands and settings overlay) */
+export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: string }[] = [
+  { value: "default", label: "Default" },
+  { value: "off", label: "Off" },
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "XHigh" },
+];
+
 /** Choices for the prune-on setting (used by commands and settings overlay) */
 export const PRUNE_ON_MODES: { value: PruneOn; label: string }[] = [
   { value: "every-turn", label: "Every turn" },
@@ -114,6 +128,8 @@ export interface ContextPruneConfig {
    * "provider/model-id" = explicit model (e.g. "anthropic/claude-haiku-3-5")
    */
   summarizerModel: string;
+  /** Thinking/reasoning level to request for summarizer calls. */
+  summarizerThinking: SummarizerThinking;
   /** When to trigger summarization and pruning */
   pruneOn: PruneOn;
 }
@@ -121,6 +137,7 @@ export interface ContextPruneConfig {
 export const DEFAULT_CONFIG: ContextPruneConfig = {
   enabled: false,
   summarizerModel: "default",
+  summarizerThinking: "default",
   pruneOn: "agent-message",
 };
 
