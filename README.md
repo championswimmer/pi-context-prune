@@ -18,7 +18,25 @@ The session file is never modified. Pruning only affects the next request's cont
 
 ## Installation
 
-### Install permanently (recommended)
+### Install from npm (stable releases)
+
+The package is published on [npmjs.org](https://www.npmjs.com/package/pi-context-prune). Use this for stable, versioned releases:
+
+```bash
+# Install globally (all projects)
+pi install npm:pi-context-prune
+
+# Or install for the current project only
+pi install -l npm:pi-context-prune
+```
+
+Once installed, the extension is auto-loaded every time you run `pi`. No flags needed.
+
+To **upgrade to a newer release**, simply re-run the install command — Pi will pull the latest version from npm.
+
+### Install from GitHub (cutting-edge / main branch)
+
+If you want the latest unreleased changes from `main`, install directly from the git repository:
 
 ```bash
 # Install globally (all projects)
@@ -28,12 +46,15 @@ pi install git:github.com/championswimmer/pi-context-prune
 pi install -l git:github.com/championswimmer/pi-context-prune
 ```
 
-Once installed, the extension is auto-loaded every time you run `pi`. No flags needed.
+> **Note:** The `main` branch may contain unreleased or experimental changes. Prefer the npm install for day-to-day use.
 
 ### Try without installing
 
 ```bash
 # Load for this session only (no install)
+pi -e npm:pi-context-prune
+
+# Or try the latest from git without installing
 pi -e git:github.com/championswimmer/pi-context-prune
 ```
 
@@ -49,7 +70,7 @@ pi -e .
 
 ```bash
 pi list           # show installed packages
-pi remove git:github.com/championswimmer/pi-context-prune
+pi remove pi-context-prune
 ```
 
 ## Prune-On Modes
