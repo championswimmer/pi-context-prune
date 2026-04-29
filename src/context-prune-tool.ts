@@ -47,6 +47,7 @@ export function registerContextPruneTool(
               text: "Context prune completed. Pending tool-call results have been summarized and pruned from context. Use context_tree_query with the toolCallIds from the summary to retrieve full outputs if needed.",
             },
           ],
+          details: {},
         };
       } catch (err: any) {
         return {
@@ -56,6 +57,7 @@ export function registerContextPruneTool(
               text: `Context prune failed: ${err.message}`,
             },
           ],
+          details: {},
         };
       }
     },
