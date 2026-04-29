@@ -21,8 +21,8 @@ import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
 import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, pruneStatusText } from "./src/commands.js";
-import type { ContextPruneConfig, CapturedBatch } from "./src/types.js";
-import { STATUS_WIDGET_ID, CONTEXT_PRUNE_TOOL_NAME, AGENTIC_AUTO_SYSTEM_PROMPT } from "./src/types.js";
+import type { ContextPruneConfig, CapturedBatch, IndexEntryData } from "./src/types.js";
+import { STATUS_WIDGET_ID, CONTEXT_PRUNE_TOOL_NAME, AGENTIC_AUTO_SYSTEM_PROMPT, CUSTOM_TYPE_SUMMARY, CUSTOM_TYPE_INDEX, CUSTOM_TYPE_STATS } from "./src/types.js";
 import { StatsAccumulator } from "./src/stats.js";
 import { registerContextPruneTool } from "./src/context-prune-tool.js";
 
@@ -40,48 +40,176 @@ export default function (pi: ExtensionAPI) {
 
   // Pending batches — accumulated until the prune trigger fires
   const pendingBatches: CapturedBatch[] = [];
+  let isFlushing = false;
 
-  // Summarizes + indexes all pending batches in a single LLM call and injects steer messages.
-  // Called immediately in "every-turn" and "agentic-auto" modes, deferred otherwise.
-  const flushPending = async (ctx: any) => {
-    if (pendingBatches.length === 0) return;
-    const batches = pendingBatches.splice(0); // drain atomically
+  type FlushResult =
+    | { ok: true; reason: "flushed"; batchCount: number; toolCallCount: number }
+    | { ok: false; reason: "empty" | "already-flushing" | "summarizer-failed" | "stale-context" | "failed"; error?: string };
 
-    ctx.ui.setStatus(STATUS_WIDGET_ID, "prune: summarizing…");
+  type SessionAppender = {
+    appendCustomEntry(customType: string, data?: unknown): string;
+    appendCustomMessageEntry(customType: string, content: string, display: boolean, details?: unknown): string;
+  };
 
-    // Batch all pending batches into a single LLM call
-    const result = await summarizeBatches(batches, currentConfig.value, ctx);
+  const isStaleContextError = (err: unknown) =>
+    err instanceof Error && err.message.includes("This extension ctx is stale");
 
-    if (result) {
-      // Accumulate token/cost stats from this summarizer call
-      statsAccum.add(result.usage);
-      statsAccum.persist(pi);
+  const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-      // Index ALL batches and send one combined summary message
-      for (const batch of batches) {
-        indexer.addBatch(batch, pi);
-      }
+  const safeSetStatus = (ctx: any, text: string) => {
+    try {
+      ctx.ui.setStatus(STATUS_WIDGET_ID, text);
+    } catch (err) {
+      if (!isStaleContextError(err)) throw err;
+    }
+  };
 
-      const allToolCallIds = batches.flatMap((b) => b.toolCalls.map((tc) => tc.toolCallId));
-      const allToolNames = batches.flatMap((b) => b.toolCalls.map((tc) => tc.toolName));
+  const safeNotify = (ctx: any, message: string, type: "info" | "warning" | "error" = "info") => {
+    try {
+      ctx.ui.notify(message, type);
+    } catch (err) {
+      if (!isStaleContextError(err)) throw err;
+    }
+  };
 
-      pi.sendMessage(
-        {
-          customType: "context-prune-summary",
-          content: result.summaryText,
-          display: true,
-          details: {
-            toolCallIds: allToolCallIds,
-            toolNames: allToolNames,
-            turnIndex: batches[0].turnIndex, // first turn of the batch
-            timestamp: batches[batches.length - 1].timestamp, // last timestamp
-          },
-        },
-        { deliverAs: "steer" }
-      );
+  const assistantMessageHasToolCalls = (message: any) =>
+    message?.role === "assistant" &&
+    Array.isArray(message.content) &&
+    message.content.some((block: any) => block?.type === "toolCall");
+
+  const isFinalAssistantMessage = (message: any) => message?.role === "assistant" && !assistantMessageHasToolCalls(message);
+
+  const restoreBatches = (batches: CapturedBatch[]) => {
+    pendingBatches.unshift(...batches);
+  };
+
+  const persistBatchIndex = (batch: CapturedBatch, appendEntry: (customType: string, data?: unknown) => void) => {
+    const records = batch.toolCalls.map((tc) => ({
+      toolCallId: tc.toolCallId,
+      toolName: tc.toolName,
+      args: tc.args,
+      resultText: tc.resultText,
+      isError: tc.isError,
+      turnIndex: batch.turnIndex,
+      timestamp: batch.timestamp,
+    }));
+
+    for (const record of records) {
+      indexer.getIndex().set(record.toolCallId, record);
     }
 
-    ctx.ui.setStatus(STATUS_WIDGET_ID, pruneStatusText(currentConfig.value, statsAccum.getStats()));
+    appendEntry(CUSTOM_TYPE_INDEX, { toolCalls: records } as IndexEntryData);
+  };
+
+  // Summarizes + indexes all pending batches in a single LLM call.
+  // Runtime delivery is used while the agent/tool loop is active so Pi can place
+  // steer messages at protocol-safe boundaries. Session delivery is used only for
+  // agent-message's final-message flush, where print-mode Pi may invalidate pi.*
+  // while the summarizer LLM call is in flight.
+  const flushPending = async (ctx: any, options: { delivery?: "runtime" | "session" } = {}): Promise<FlushResult> => {
+    if (pendingBatches.length === 0) return { ok: false, reason: "empty" };
+    if (isFlushing) return { ok: false, reason: "already-flushing" };
+
+    const batches = pendingBatches.splice(0); // drain atomically; restore on failure
+    const toolCallCount = batches.reduce((sum, batch) => sum + batch.toolCalls.length, 0);
+    isFlushing = true;
+
+    const delivery = options.delivery ?? "runtime";
+    let sessionManager: SessionAppender | undefined;
+    if (delivery === "session") {
+      try {
+        sessionManager = ctx.sessionManager as unknown as SessionAppender;
+      } catch (err) {
+        restoreBatches(batches);
+        isFlushing = false;
+        return { ok: false, reason: isStaleContextError(err) ? "stale-context" : "failed", error: errorMessage(err) };
+      }
+    }
+
+    const appendEntry = (customType: string, data?: unknown) => sessionManager!.appendCustomEntry(customType, data);
+    const appendSummaryMessage = (content: string, details: unknown) =>
+      sessionManager!.appendCustomMessageEntry(CUSTOM_TYPE_SUMMARY, content, true, details);
+
+    try {
+      safeSetStatus(ctx, "prune: summarizing…");
+
+      // Batch all pending batches into a single LLM call
+      const result = await summarizeBatches(batches, currentConfig.value, ctx);
+
+      if (!result) {
+        restoreBatches(batches);
+        safeSetStatus(ctx, pruneStatusText(currentConfig.value, statsAccum.getStats()));
+        return { ok: false, reason: "summarizer-failed" };
+      }
+
+      try {
+        const allToolCallIds = batches.flatMap((b) => b.toolCalls.map((tc) => tc.toolCallId));
+        const allToolNames = batches.flatMap((b) => b.toolCalls.map((tc) => tc.toolName));
+        const details = {
+          toolCallIds: allToolCallIds,
+          toolNames: allToolNames,
+          turnIndex: batches[0].turnIndex, // first turn of the batch
+          timestamp: batches[batches.length - 1].timestamp, // last timestamp
+        };
+
+        if (delivery === "runtime") {
+          statsAccum.add(result.usage);
+          statsAccum.persist(pi);
+
+          for (const batch of batches) {
+            indexer.addBatch(batch, pi);
+          }
+
+          pi.sendMessage(
+            {
+              customType: CUSTOM_TYPE_SUMMARY,
+              content: result.summaryText,
+              display: true,
+              details,
+            },
+            { deliverAs: "steer" }
+          );
+        } else {
+          let wroteSessionEntry = false;
+          try {
+            // Persist the visible summary before the index that activates pruning.
+            // If persistence ever fails partway through, the safer partial state is
+            // a summary without pruning rather than pruning without a summary.
+            appendSummaryMessage(result.summaryText, details);
+            wroteSessionEntry = true;
+
+            for (const batch of batches) {
+              persistBatchIndex(batch, appendEntry);
+            }
+
+            statsAccum.add(result.usage);
+            try {
+              appendEntry(CUSTOM_TYPE_STATS, statsAccum.getStats());
+            } catch {
+              // Ignore stats persistence failures; the summary and index are the contract.
+            }
+          } catch (err) {
+            if (!wroteSessionEntry) restoreBatches(batches);
+            return { ok: false, reason: isStaleContextError(err) ? "stale-context" : "failed", error: errorMessage(err) };
+          }
+        }
+      } catch (err) {
+        restoreBatches(batches);
+        return { ok: false, reason: isStaleContextError(err) ? "stale-context" : "failed", error: errorMessage(err) };
+      }
+
+      safeSetStatus(ctx, pruneStatusText(currentConfig.value, statsAccum.getStats()));
+      return { ok: true, reason: "flushed", batchCount: batches.length, toolCallCount };
+    } catch (err) {
+      restoreBatches(batches);
+      if (isStaleContextError(err)) {
+        return { ok: false, reason: "stale-context", error: errorMessage(err) };
+      }
+      safeNotify(ctx, `pruner: summarization failed: ${errorMessage(err)}`, "error");
+      return { ok: false, reason: "failed", error: errorMessage(err) };
+    } finally {
+      isFlushing = false;
+    }
   };
 
   // ── Helper: toggle context_prune tool activation based on config ───────────
@@ -142,26 +270,31 @@ export default function (pi: ExtensionAPI) {
     const hasToolResults = event.toolResults && event.toolResults.length > 0;
 
     if (!hasToolResults) {
-      // Text-only turn: the agent sent a final message with no tool calls.
-      // In "agent-message" mode, this is the trigger to flush pending batches.
-      if (currentConfig.value.pruneOn === "agent-message") {
-        await flushPending(ctx);
-      }
+      // Text-only final turns are handled by message_end in agent-message mode.
+      // In print mode, turn_end can fire after session shutdown, so do not start
+      // deferred LLM work from this late lifecycle event.
       return;
     }
 
-    const batch = captureBatch(
+    const capturedBatch = captureBatch(
       event.message,
       event.toolResults,
       event.turnIndex,
       Date.now()
     );
+    const batch = {
+      ...capturedBatch,
+      // Do not summarize the pruner's own housekeeping tool result. Otherwise
+      // agentic-auto mode can queue the context_prune result and try to flush it
+      // during agent_end, when Pi may already have invalidated the extension ctx.
+      toolCalls: capturedBatch.toolCalls.filter((tc) => tc.toolName !== CONTEXT_PRUNE_TOOL_NAME),
+    };
     if (batch.toolCalls.length === 0) return;
 
     pendingBatches.push(batch);
 
     if (currentConfig.value.pruneOn === "every-turn") {
-      await flushPending(ctx);
+      await flushPending(ctx, { delivery: "session" });
     } else {
       // Let the user know a batch is queued
       const n = pendingBatches.length;
@@ -180,8 +313,9 @@ export default function (pi: ExtensionAPI) {
           trigger = "/pruner now";
           break;
       }
-      ctx.ui.setStatus(STATUS_WIDGET_ID, `prune: ${n} pending`);
-      ctx.ui.notify(
+      safeSetStatus(ctx, `prune: ${n} pending`);
+      safeNotify(
+        ctx,
         `pruner: ${n} turn${n === 1 ? "" : "s"} queued — will summarize on ${trigger}`,
         "info"
       );
@@ -193,17 +327,28 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName !== "context_tag") return;
     if (!currentConfig.value.enabled) return;
     if (currentConfig.value.pruneOn !== "on-context-tag") return;
-    await flushPending(ctx);
+    await flushPending(ctx, { delivery: "runtime" });
   });
 
-  // ── agent_end: safety net flush for agent-message and agentic-auto modes ──────
-  // If the agent loop ends before a trigger fires (e.g. aborted),
-  // flush any remaining pending batches so they aren't lost.
+  // ── message_end: flush after the final assistant response in agent-message mode ──
+  // A final assistant message is the earliest reliable boundary where the agent has
+  // finished using the raw tool results. flushPending captures the SessionManager
+  // before awaiting summarization so print-mode shutdown cannot invalidate the
+  // persistence path while the summarizer model is running.
+  pi.on("message_end", async (event, ctx) => {
+    if (!currentConfig.value.enabled) return;
+    if (currentConfig.value.pruneOn !== "agent-message") return;
+    if (!isFinalAssistantMessage(event.message)) return;
+    await flushPending(ctx, { delivery: "session" });
+  });
+
+  // ── agent_end: last-chance cleanup only ─────────────────────────────────────
+  // agent-message normally flushes on message_end. By agent_end, print-mode Pi may
+  // already be disposing the session, so avoid starting a best-effort LLM call here.
   pi.on("agent_end", async (_event, ctx) => {
     if (!currentConfig.value.enabled) return;
-    if (currentConfig.value.pruneOn !== "agent-message" && currentConfig.value.pruneOn !== "agentic-auto") return;
     if (pendingBatches.length === 0) return;
-    await flushPending(ctx);
+    safeSetStatus(ctx, `prune: ${pendingBatches.length} pending`);
   });
 
   // ── context: prune summarized tool results from next LLM call ─────────────
@@ -232,7 +377,7 @@ export default function (pi: ExtensionAPI) {
   registerQueryTool(pi, indexer);
 
   // ── Register context_prune tool (always registered, activated only in agentic-auto mode) ──
-  registerContextPruneTool(pi, flushPending);
+  registerContextPruneTool(pi, (ctx) => flushPending(ctx, { delivery: "runtime" }));
 
   // ── Register /pruner command + summary message renderer ────────────
   registerCommands(pi, currentConfig, flushPending, syncToolActivation, () => statsAccum.getStats(), indexer);

@@ -18,9 +18,13 @@ import { CONTEXT_PRUNE_TOOL_NAME } from "./types.js";
  * @param pi      Extension API for tool registration
  * @param flushPending  Shared flush function that summarizes + indexes pending batches
  */
+type FlushResult =
+  | { ok: true; reason: "flushed"; batchCount: number; toolCallCount: number }
+  | { ok: false; reason: string; error?: string };
+
 export function registerContextPruneTool(
   pi: ExtensionAPI,
-  flushPending: (ctx: ExtensionContext) => Promise<void>,
+  flushPending: (ctx: ExtensionContext) => Promise<FlushResult>,
 ): void {
   pi.registerTool({
     name: CONTEXT_PRUNE_TOOL_NAME,
@@ -39,14 +43,28 @@ export function registerContextPruneTool(
 
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       try {
-        await flushPending(ctx);
+        const result = await flushPending(ctx);
+        if (!result.ok) {
+          const suffix = result.error ? ` (${result.error})` : "";
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Context prune did not run: ${result.reason}${suffix}.`,
+              },
+            ],
+            details: result,
+          };
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: "Context prune completed. Pending tool-call results have been summarized and pruned from context. Use context_tree_query with the toolCallIds from the summary to retrieve full outputs if needed.",
+              text: `Context prune completed. Summarized ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"}. Use context_tree_query with the toolCallIds from the summary to retrieve full outputs if needed.`,
             },
           ],
+          details: result,
         };
       } catch (err: any) {
         return {
@@ -56,6 +74,7 @@ export function registerContextPruneTool(
               text: `Context prune failed: ${err.message}`,
             },
           ],
+          details: { ok: false, reason: "failed", error: err.message },
         };
       }
     },

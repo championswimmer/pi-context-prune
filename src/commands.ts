@@ -7,7 +7,7 @@ import {
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { saveConfig } from "./config.js";
 import { formatTokens, formatCost } from "./stats.js";
-import { Container, type Component, Text, SettingsList, type SettingItem } from "@mariozechner/pi-tui";
+import { Container, Text, SettingsList, type SettingItem } from "@mariozechner/pi-tui";
 import { DynamicBorder, getSettingsListTheme } from "@mariozechner/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
 import type { ToolCallIndexer } from "./indexer.js";
@@ -127,7 +127,7 @@ Settings are saved to ~/.pi/agent/context-prune/settings.json`;
 export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
-  flushPending: (ctx: ExtensionCommandContext) => void,
+  flushPending: (ctx: ExtensionCommandContext) => Promise<{ ok: boolean; reason: string; error?: string }>,
   syncToolActivation: () => void,
   getStats: () => SummarizerStats,
   indexer: ToolCallIndexer,
@@ -235,28 +235,23 @@ export function registerCommands(
             syncToolActivation();
           };
 
+          let closeSettingsOverlay = () => {};
           settingsList = new SettingsList(
             items,
             10,
             getSettingsListTheme(),
             onChange,
-            () => {}, // onCancel — just close the overlay
+            () => closeSettingsOverlay(), // onCancel — close the custom overlay
             { enableSearch: false },
           );
 
           // Use ctx.ui.custom() to show the settings list as an overlay.
           // The factory receives (tui, theme, keybindings, done) and returns a Component.
-          // When done() is called (by pressing Escape via SettingsList's onCancel),
-          // the custom UI closes and the promise resolves.
+          // Wire Escape through the SettingsList constructor's onCancel callback instead
+          // of mutating private SettingsList fields.
           await ctx.ui.custom(
             (_tui, _theme, _keybindings, done) => {
-              // Wrap onCancel to call done() so the custom UI closes when Escape is pressed
-              const originalOnCancel = settingsList.onCancel;
-              settingsList.onCancel = () => {
-                originalOnCancel();
-                done(undefined);
-              };
-
+              closeSettingsOverlay = () => done(undefined);
               return new SettingsOverlay("pruner settings", settingsList);
             },
             {
@@ -373,7 +368,11 @@ export function registerCommands(
             ctx.ui.notify("Context pruning is disabled. Run /pruner on first.", "warning");
             return;
           }
-          flushPending(ctx);
+          const result = await flushPending(ctx);
+          if (!result.ok) {
+            const suffix = result.error ? ` (${result.error})` : "";
+            ctx.ui.notify(`pruner: nothing flushed — ${result.reason}${suffix}`, result.reason === "empty" ? "info" : "warning");
+          }
           break;
         }
 
