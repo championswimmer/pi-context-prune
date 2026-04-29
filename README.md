@@ -2,6 +2,12 @@
 
 A [Pi coding-agent](https://github.com/badlogic/pi-mono) extension that **summarizes completed tool-call batches**, prunes raw tool outputs from future LLM context, and exposes a `context_tree_query` escape hatch to recover any original output on demand.
 
+## Companion Extensions
+
+> **📊 Tip:** If you want to visualise your **context cache hit rates** over time, check out [pi-cache-graph](https://github.com/championswimmer/pi-cache-graph) — a companion Pi extension that plots cache hits and misses as a live graph inside the TUI. Pruning context with `pi-context-prune` directly improves cache re-use, and `pi-cache-graph` lets you see the effect in real time.
+
+---
+
 ## Why
 
 > 📖 For a deep dive into how pruning works, how prefix caching interacts with it, and the research behind summarization-based context management, see [**PRUNING.md**](PRUNING.md).
