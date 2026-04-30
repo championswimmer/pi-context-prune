@@ -14,7 +14,7 @@ steps:
     steps:
       - "- [x] step 1: review the README diff together with the code changes for consistency"
       - "- [x] step 2: commit the pruning and README changes with a focused commit message"
-      - "- [ ] step 3: push the commit to the main branch"
+      - "- [x] step 3: push the commit to the main branch"
 ---
 
 # 020-document-and-push-oversized-prune-skip
@@ -30,4 +30,4 @@ steps:
 ## Phase 3 — Validation
 - [x] step 1: review the README diff together with the code changes for consistency
 - [x] step 2: commit the pruning and README changes with a focused commit message
-- [ ] step 3: push the commit to the main branch
+- [x] step 3: push the commit to the main branch
