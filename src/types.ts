@@ -64,17 +64,20 @@ export const AGENTIC_AUTO_SYSTEM_PROMPT = `[Context Prune — Agentic Auto Mode]
 You have access to the context_prune tool. Use it to summarize and compact preceding tool-call results from context.
 
 Why use context_prune:
-- Pruning reduces the size of the context, which lets you work on longer and more complex problems without hitting context limits.
-- Summaries keep the key information accessible while freeing up space for new reasoning and tool calls.
+- Pruning reduces context size, which helps you sustain longer and more complex work without running into context limits.
+- Summaries preserve the important takeaways while freeing space for new reasoning and tool use.
 
-When to use context_prune:
-- After completing a group of 8–10 related tool calls (e.g., a multi-step file edit, search, or analysis sequence).
-- When context is getting large and you want to keep it manageable for future reasoning.
-- You should use context_prune at least once after every 12–15 tool calls to prevent context from growing indefinitely.
+How to decide when to prune:
+- Prune at a natural task boundary. Call context_prune when the currently pending tool calls all belong to one completed task, investigation, or tightly related subtask.
+- Keep each prune cohesive. Do not bundle unrelated work together; if you are about to switch to a different task, prune the completed batch first.
+- A good target is usually about 8–12 related tool calls.
+- Prune once that task chunk is finished and you are unlikely to need to reread every raw tool result from it again during the rest of the session.
+- Avoid pruning too early: calling context_prune after every 2–3 tool calls hurts prompt-cache efficiency.
+- Avoid waiting too long: letting more than about 12–13 tool calls pile up before pruning makes the eventual prune job larger and slower.
 
 When NOT to use context_prune:
-- Do NOT call it after every 2–3 tool calls. Only use it after a meaningful batch of work is done.
 - Do NOT call it for trivial or single tool calls.
+- Do NOT use it in the middle of an active task if you still expect to consult the full raw tool outputs repeatedly.
 
 What happens when you call context_prune:
 - All pending tool-call results are summarized into concise bullet points.
