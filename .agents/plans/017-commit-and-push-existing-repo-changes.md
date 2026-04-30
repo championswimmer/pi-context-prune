@@ -10,7 +10,7 @@ steps:
     steps:
       - "- [x] step 1: confirm the remaining changes are ready to commit as-is"
       - "- [x] step 2: create a commit containing the remaining repo changes"
-      - "- [ ] step 3: push the commit to origin/main"
+      - "- [x] step 3: push the commit to origin/main"
 ---
 
 # 017-commit-and-push-existing-repo-changes
@@ -22,4 +22,4 @@ steps:
 ## Phase 2 — Validation
 - [x] step 1: confirm the remaining changes are ready to commit as-is
 - [x] step 2: create a commit containing the remaining repo changes
-- [ ] step 3: push the commit to origin/main
+- [x] step 3: push the commit to origin/main
