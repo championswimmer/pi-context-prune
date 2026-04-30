@@ -14,7 +14,7 @@ steps:
     steps:
       - "- [x] step 1: run a build or typecheck to confirm the prompt edit is safe"
       - "- [x] step 2: review the diff for scope and preserve unrelated user changes"
-      - "- [ ] step 3: commit and push the change to main"
+      - "- [x] step 3: commit and push the change to main"
 ---
 
 # 016-update-agentic-auto-prompt-guidance
@@ -30,4 +30,4 @@ steps:
 ## Phase 3 — Validation
 - [x] step 1: run a build or typecheck to confirm the prompt edit is safe
 - [x] step 2: review the diff for scope and preserve unrelated user changes
-- [ ] step 3: commit and push the change to main
+- [x] step 3: commit and push the change to main
