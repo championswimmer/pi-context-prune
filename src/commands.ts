@@ -166,7 +166,10 @@ Settings are saved to ~/.pi/agent/context-prune/settings.json`;
 export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
-  flushPending: (ctx: ExtensionCommandContext) => Promise<{ ok: boolean; reason: string; error?: string }>,
+  flushPending: (ctx: ExtensionCommandContext) => Promise<
+    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+    | { ok: false; reason: string; error?: string }
+  >,
   syncToolActivation: () => void,
   getStats: () => SummarizerStats,
   indexer: ToolCallIndexer,
@@ -460,9 +463,23 @@ export function registerCommands(
           }
           const result = await flushPending(ctx);
           if (!result.ok) {
-            const suffix = result.error ? ` (${result.error})` : "";
+            const suffix = "error" in result && result.error ? ` (${result.error})` : "";
             ctx.ui.notify(`pruner: nothing flushed — ${result.reason}${suffix}`, result.reason === "empty" ? "info" : "warning");
+            break;
           }
+
+          if (result.reason === "skipped-oversized") {
+            ctx.ui.notify(
+              `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
+              "warning"
+            );
+            break;
+          }
+
+          ctx.ui.notify(
+            `pruner: pruned ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"} — summary ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars`,
+            "info"
+          );
           break;
         }
 

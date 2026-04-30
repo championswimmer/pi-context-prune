@@ -19,7 +19,8 @@ import { CONTEXT_PRUNE_TOOL_NAME } from "./types.js";
  * @param flushPending  Shared flush function that summarizes + indexes pending batches
  */
 type FlushResult =
-  | { ok: true; reason: "flushed"; batchCount: number; toolCallCount: number }
+  | { ok: true; reason: "flushed"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+  | { ok: true; reason: "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
   | { ok: false; reason: string; error?: string };
 
 export function registerContextPruneTool(
@@ -45,7 +46,7 @@ export function registerContextPruneTool(
       try {
         const result = await flushPending(ctx);
         if (!result.ok) {
-          const suffix = result.error ? ` (${result.error})` : "";
+          const suffix = "error" in result && result.error ? ` (${result.error})` : "";
           return {
             content: [
               {
@@ -57,11 +58,23 @@ export function registerContextPruneTool(
           };
         }
 
+        if (result.reason === "skipped-oversized") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Context prune skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"}: the summary was ${result.summaryCharCount} chars while the raw tool results were ${result.rawCharCount} chars. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
+              },
+            ],
+            details: result,
+          };
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: `Context prune completed. Summarized ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"}. Use context_tree_query with the toolCallIds from the summary to retrieve full outputs if needed.`,
+              text: `Context prune completed. Summarized ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"}. Summary size: ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars. Use context_tree_query with the toolCallIds from the summary to retrieve full outputs if needed.`,
             },
           ],
           details: result,

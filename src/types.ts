@@ -53,6 +53,9 @@ export const CUSTOM_TYPE_INDEX = "context-prune-index";
 /** customType for stats persistence entries (NOT in LLM context) */
 export const CUSTOM_TYPE_STATS = "context-prune-stats";
 
+/** customType for prune-frontier persistence entries (NOT in LLM context) */
+export const CUSTOM_TYPE_FRONTIER = "context-prune-frontier";
+
 /** Footer status widget ID */
 export const STATUS_WIDGET_ID = "context-prune";
 
@@ -221,6 +224,37 @@ export interface SummarizerStats {
   totalCost: number;
   /** Number of summarizer LLM calls made */
   callCount: number;
+}
+
+/** Outcome of the most recent completed prune attempt. */
+export type PruneFrontierOutcome = "summarized" | "skipped-oversized";
+
+/**
+ * Snapshot of the last successfully completed prune attempt boundary.
+ *
+ * This advances both when pruning succeeds and when a summary is rejected for
+ * being larger than the raw tool-result text it would replace. Operational
+ * failures do not advance the frontier.
+ */
+export interface PruneFrontier {
+  /** Last tool call included in the completed prune attempt */
+  lastAttemptedToolCallId: string;
+  /** Name of the last tool call included in the completed prune attempt */
+  lastAttemptedToolName: string;
+  /** Assistant turn index containing the last attempted tool call */
+  lastAttemptedTurnIndex: number;
+  /** Timestamp captured when that last attempted tool call batch was recorded */
+  lastAttemptedTimestamp: number;
+  /** Number of batches included in the completed prune attempt */
+  attemptedBatchCount: number;
+  /** Number of tool calls included in the completed prune attempt */
+  attemptedToolCallCount: number;
+  /** Character count of the raw tool-result text that was eligible for pruning */
+  rawCharCount: number;
+  /** Character count of the rendered summary text that was produced */
+  summaryCharCount: number;
+  /** Whether the attempt actually pruned or was skipped for being oversized */
+  outcome: PruneFrontierOutcome;
 }
 
 /**

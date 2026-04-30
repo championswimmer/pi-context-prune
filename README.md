@@ -171,8 +171,8 @@ When `pruneOn` is set to `agentic-auto`, the `context_prune` tool is activated a
 
 When the model calls `context_prune`:
 - All pending tool-call batches are summarized in a single LLM call
-- The original outputs are pruned from future context
-- A summary message is injected as a steer
+- If the summary is smaller than the raw tool-result text it would replace, the original outputs are pruned from future context and a summary message is injected as a steer
+- If the summary is larger than the raw tool-result text, pruning is skipped for that attempted range: the original tool results remain in context, but the prune frontier still advances so the next prune attempt starts after that range instead of retrying it forever
 
 The tool is guided by a system prompt that instructs the model to use it after completing a meaningful batch of work (not after every trivial call).
 
@@ -250,6 +250,7 @@ src/
   pruner.ts                 — filter context event messages
   query-tool.ts             — context_tree_query tool registration
   context-prune-tool.ts     — context_prune tool registration (agentic-auto)
+  frontier.ts               — persisted prune-frontier tracker for last attempted prune boundary
   stats.ts                  — StatsAccumulator for cumulative token/cost tracking
   tree-browser.ts           — foldable tree browser for /pruner tree
   commands.ts               — /pruner command + settings overlay + message renderer
@@ -262,35 +263,37 @@ session_start
   └─► loadConfig()              read ~/.pi/agent/context-prune/settings.json
   └─► indexer.reconstruct()     rebuild Map from session branch entries
   └─► statsAccum.reconstruct()  rebuild stats from session branch entries
+  └─► frontier.reconstruct()    rebuild last prune-attempt boundary from session entries
   └─► syncToolActivation()      activate/deactivate context_prune tool
 
 session_tree
   └─► indexer.reconstruct()     rebuild Map (branch may have different history)
   └─► statsAccum.reconstruct()  rebuild stats (branch may have different history)
+  └─► frontier.reconstruct()    rebuild last prune-attempt boundary for the branch
   └─► clear pendingBatches      discard queued batches from old branch
 
 turn_end (tool calls present + enabled)
   └─► captureBatch()            serialize the tool call batch
+  └─► skip batches at/before frontier (already attempted earlier)
   └─► push to pendingBatches
   └─► if every-turn: flushPending() immediately
-  └─► if agent-message (text-only turn): flushPending()
   └─► otherwise: notify user of pending count + trigger
 
 tool_execution_end (context_tag, on-context-tag mode)
   └─► flushPending()
 
-agent_end (agent-message / agentic-auto safety net)
-  └─► flushPending()             flush any orphaned pending batches
+agent_end
+  └─► update footer status only if batches remain pending
 
 context_prune tool call (agentic-auto mode)
   └─► flushPending()
 
 flushPending()
   └─► summarizeBatches()         call LLM → summary text + usage stats
-  └─► statsAccum.add()           accumulate token/cost stats
-  └─► statsAccum.persist()       persist stats to session
-  └─► indexer.addBatch()         persist to session via pi.appendEntry
-  └─► pi.sendMessage()           inject summary (deliverAs: "steer")
+  └─► compare summary chars vs raw tool-result chars
+  └─► if smaller: persist index + inject summary, then advance frontier
+  └─► if larger: keep original tool results, skip summary/index writes, still advance frontier
+  └─► statsAccum.add()/persist() accumulate token/cost stats for the summarizer call
 
 context (enabled + index non-empty)
   └─► pruneMessages()            remove toolResult messages in the index
@@ -303,7 +306,8 @@ before_agent_start (agentic-auto mode)
 
 - **Config** lives in `~/.pi/agent/context-prune/settings.json` — the extension's own file, independent of Pi's project settings
 - **Index** is persisted via `pi.appendEntry("context-prune-index", { toolCalls })` — one entry per summarized batch, NOT in LLM context
-- **Summaries** are injected as `custom_message` entries with `customType: "context-prune-summary"` — these ARE in LLM context (replacing the raw outputs)
+- **Prune frontier** is persisted via `pi.appendEntry("context-prune-frontier", ...)` — it records the last attempted prune boundary even when an oversized summary is rejected
+- **Summaries** are injected as `custom_message` entries with `customType: "context-prune-summary"` — these ARE in LLM context (replacing the raw outputs only when pruning is accepted)
 - The underlying session JSONL file always retains the original `ToolResultMessage` entries unchanged
 
 ### Footer status widget
