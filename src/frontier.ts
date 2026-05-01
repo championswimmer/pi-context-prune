@@ -31,6 +31,10 @@ export class PruneFrontierTracker {
       attemptedToolCallCount: data.attemptedToolCallCount ?? 0,
       rawCharCount: data.rawCharCount ?? 0,
       summaryCharCount: data.summaryCharCount ?? 0,
+      rawTokenCount: data.rawTokenCount ?? 0,
+      summaryTokenCount: data.summaryTokenCount ?? 0,
+      tokensSaved: data.tokensSaved ?? 0,
+      savingsRatio: data.savingsRatio ?? 0,
       outcome: data.outcome ?? "summarized",
     };
   }

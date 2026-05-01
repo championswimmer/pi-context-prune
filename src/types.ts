@@ -262,6 +262,14 @@ export interface PruneFrontier {
   rawCharCount: number;
   /** Character count of the rendered summary text that was produced */
   summaryCharCount: number;
+  /** Estimated / counted tokens for the raw tool-result text that was eligible for pruning */
+  rawTokenCount?: number;
+  /** Estimated / counted tokens for the rendered summary text that was produced */
+  summaryTokenCount?: number;
+  /** Positive when the summary saved tokens; negative when it grew */
+  tokensSaved?: number;
+  /** Fraction of raw tokens saved (0 for empty raw input; negative when the summary grew) */
+  savingsRatio?: number;
   /** Whether the attempt actually pruned or was skipped for being oversized */
   outcome: PruneFrontierOutcome;
 }

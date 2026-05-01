@@ -10,6 +10,8 @@
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { CONTEXT_PRUNE_TOOL_NAME } from "./types.js";
+import type { TokenAccountingMetrics } from "./tokens.js";
+import { formatTokenMetrics } from "./tokens.js";
 
 /**
  * Registers the context_prune tool with Pi.
@@ -19,8 +21,8 @@ import { CONTEXT_PRUNE_TOOL_NAME } from "./types.js";
  * @param flushPending  Shared flush function that summarizes + indexes pending batches
  */
 type FlushResult =
-  | { ok: true; reason: "flushed"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
-  | { ok: true; reason: "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+  | ({ ok: true; reason: "flushed"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number } & TokenAccountingMetrics)
+  | ({ ok: true; reason: "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number } & TokenAccountingMetrics)
   | { ok: false; reason: string; error?: string };
 
 export function registerContextPruneTool(
@@ -63,7 +65,7 @@ export function registerContextPruneTool(
             content: [
               {
                 type: "text",
-                text: `Context prune skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"}: the summary was ${result.summaryCharCount} chars while the raw tool results were ${result.rawCharCount} chars. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
+                text: `Context prune skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"}: the summary was ${result.summaryCharCount} chars while the raw tool results were ${result.rawCharCount} chars (${formatTokenMetrics(result)}). The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
               },
             ],
             details: result,
@@ -74,7 +76,7 @@ export function registerContextPruneTool(
           content: [
             {
               type: "text",
-              text: `Context prune completed. Summarized ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"}. Summary size: ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars. Use context_tree_query with the toolCallIds from the summary to retrieve full outputs if needed.`,
+              text: `Context prune completed. Summarized ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"}. Summary size: ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars (${formatTokenMetrics(result)}). Use context_tree_query with the toolCallIds from the summary to retrieve full outputs if needed.`,
             },
           ],
           details: result,

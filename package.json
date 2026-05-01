@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "check": "npm test",
+    "test": "node --test --experimental-strip-types ./src/tokens.test.ts"
   },
   "keywords": [
     "pi-package"
