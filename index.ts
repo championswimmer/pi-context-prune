@@ -17,7 +17,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { loadConfig } from "./src/config.js";
 import { captureBatch } from "./src/batch-capture.js";
 import { summarizeBatches } from "./src/summarizer.js";
-import { countTokens, computeSavings, formatTokenMetrics, type TokenAccountingMetrics } from "./src/tokens.js";
+import { countTextBlocksTokens, countTokens, computeSavings, formatTokenMetrics, type TokenAccountingMetrics } from "./src/tokens.js";
 import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
 import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminder.js";
@@ -156,14 +156,9 @@ export default function (pi: ExtensionAPI) {
     try {
       safeSetStatus(ctx, "prune: summarizing…");
 
-      const rawCharCount = batches.reduce(
-        (sum, batch) => sum + batch.toolCalls.reduce((batchSum, tc) => batchSum + tc.resultText.length, 0),
-        0
-      );
-      const rawTokenCount = batches.reduce(
-        (sum, batch) => sum + batch.toolCalls.reduce((batchSum, tc) => batchSum + countTokens(tc.resultText), 0),
-        0
-      );
+      const rawToolResults = batches.flatMap((batch) => batch.toolCalls.map((tc) => tc.resultText));
+      const rawCharCount = rawToolResults.reduce((sum, resultText) => sum + resultText.length, 0);
+      const rawTokenCount = countTextBlocksTokens(rawToolResults);
 
       const buildFrontier = (
         outcome: PruneFrontier["outcome"],

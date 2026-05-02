@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeSavings, countTokens, estimateTokens } from "./tokens.ts";
+import {
+  computeSavings,
+  countTextBlocksTokens,
+  countTokens,
+  estimateTokens,
+  formatTokenMetrics,
+} from "./tokens.ts";
 
 test("estimateTokens returns 0 for empty text", () => {
   assert.equal(estimateTokens(""), 0);
@@ -37,8 +43,27 @@ test("countTokens falls back when model.countTokens throws", () => {
   );
 });
 
+test("countTokens falls back when model.countTokens returns a promise", async () => {
+  assert.equal(countTokens("abc", { countTokens: () => Promise.resolve(7) }), 1);
+  await Promise.resolve();
+});
+
+test("countTokens suppresses async tokenizer rejections and falls back", async () => {
+  assert.equal(
+    countTokens("abc", {
+      countTokens: () => Promise.reject(new Error("boom")),
+    }),
+    1,
+  );
+  await Promise.resolve();
+});
+
 test("countTokens uses model.tokenize array length when available", () => {
   assert.equal(countTokens("abc", { tokenize: () => [1, 2, 3, 4] }), 4);
+});
+
+test("countTextBlocksTokens rounds once on aggregated fallback text", () => {
+  assert.equal(countTextBlocksTokens(["a", "a", "a", "a", "a"]), 2);
 });
 
 test("computeSavings returns zero ratio for empty raw input", () => {
@@ -66,4 +91,25 @@ test("computeSavings returns negative savings when summaries are larger", () => 
     tokensSaved: -50,
     savingsRatio: -0.5,
   });
+});
+
+test("formatTokenMetrics uses saved wording for positive savings", () => {
+  assert.equal(
+    formatTokenMetrics(computeSavings(100, 25)),
+    "≈ 25 summary vs 100 raw tokens, saved 75 (75.0%)",
+  );
+});
+
+test("formatTokenMetrics uses no-change wording for flat savings", () => {
+  assert.equal(
+    formatTokenMetrics(computeSavings(100, 100)),
+    "≈ 100 summary vs 100 raw tokens, no token change (0.0%)",
+  );
+});
+
+test("formatTokenMetrics uses grew-by wording for negative savings", () => {
+  assert.equal(
+    formatTokenMetrics(computeSavings(100, 150)),
+    "≈ 150 summary vs 100 raw tokens, grew by 50 (-50.0%)",
+  );
 });

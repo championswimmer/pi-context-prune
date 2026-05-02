@@ -7,7 +7,28 @@ export interface TokenAccountingMetrics {
 
 const FALLBACK_CHARS_PER_TOKEN = 4;
 
+type TokenizerResult = PromiseLike<unknown> & {
+  catch?: (onRejected: (reason: unknown) => unknown) => unknown;
+};
+
+function isThenable(value: unknown): value is TokenizerResult {
+  return !!value && (typeof value === "object" || typeof value === "function") && typeof (value as { then?: unknown }).then === "function";
+}
+
+function discardThenable(value: TokenizerResult): null {
+  if (typeof value.catch === "function") {
+    void value.catch(() => undefined);
+  } else {
+    void value.then(undefined, () => undefined);
+  }
+  return null;
+}
+
 function normalizeTokenCount(value: unknown): number | null {
+  if (isThenable(value)) {
+    return discardThenable(value);
+  }
+
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.round(value));
   }
@@ -64,6 +85,12 @@ export function countTokens(text: string, model?: unknown): number {
   return estimateTokens(text);
 }
 
+/** Count tokens across multiple text blocks, rounding once on the aggregate text. */
+export function countTextBlocksTokens(texts: string[], model?: unknown): number {
+  if (texts.length === 0) return 0;
+  return countTokens(texts.join(""), model);
+}
+
 /** Compute token savings for raw text vs its summary. */
 export function computeSavings(rawTokenCount: number, summaryTokenCount: number): TokenAccountingMetrics {
   const tokensSaved = rawTokenCount - summaryTokenCount;
@@ -81,5 +108,13 @@ export function formatSavingsRatio(savingsRatio: number): string {
 }
 
 export function formatTokenMetrics(metrics: TokenAccountingMetrics): string {
-  return `≈ ${metrics.summaryTokenCount} summary vs ${metrics.rawTokenCount} raw tokens, saved ${metrics.tokensSaved} (${formatSavingsRatio(metrics.savingsRatio)})`;
+  const counts = `≈ ${metrics.summaryTokenCount} summary vs ${metrics.rawTokenCount} raw tokens`;
+  const ratio = formatSavingsRatio(metrics.savingsRatio);
+  if (metrics.tokensSaved > 0) {
+    return `${counts}, saved ${metrics.tokensSaved} (${ratio})`;
+  }
+  if (metrics.tokensSaved < 0) {
+    return `${counts}, grew by ${Math.abs(metrics.tokensSaved)} (${ratio})`;
+  }
+  return `${counts}, no token change (${ratio})`;
 }

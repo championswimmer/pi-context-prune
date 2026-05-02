@@ -6,7 +6,7 @@
   "scripts": {
     "build": "echo 'nothing to build'",
     "check": "npm test",
-    "test": "node --test --experimental-strip-types ./src/tokens.test.ts"
+    "test": "tsx --test ./src/tokens.test.ts"
   },
   "keywords": [
     "pi-package"
@@ -30,6 +30,9 @@
     "prompts": [
       "./prompts"
     ]
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
