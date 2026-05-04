@@ -1,4 +1,4 @@
-import type { CapturedBatch, CapturedToolCall } from "./types.js";
+import type { CapturedBatch, CapturedToolCall, BatchingMode } from "./types.js";
 
 /**
  * Converts turn_end event data into a CapturedBatch.
@@ -177,4 +177,59 @@ export function serializeBatchesForSummarizer(batches: CapturedBatch[]): string 
       return `${header}\n${body}`;
     })
     .join("\n\n");
+}
+
+/**
+ * Groups CapturedBatches according to the chosen batching mode.
+ *
+ * - "turn"          : returns the input array unchanged (one summary per assistant turn).
+ * - "agent-message" : merges all consecutive batches that share the same `userTurnGroup`
+ *                     into a single CapturedBatch, producing one summary per
+ *                     user → final-agent-message span.
+ *
+ * Batches without a `userTurnGroup` (e.g. from the live `turn_end` capture path) are
+ * always passed through one-per-batch regardless of mode — grouping only applies to
+ * batches captured from the session branch scan.
+ *
+ * Merge rules:
+ *   - `assistantText` = non-empty values joined with "\n\n"
+ *   - `toolCalls`     = concatenation in original order
+ *   - `turnIndex`     = last batch's turnIndex (latest turn in the group)
+ *   - `timestamp`     = last batch's timestamp
+ *   - `userTurnGroup` = shared group value of the merged batches
+ */
+export function groupBatchesByMode(batches: CapturedBatch[], mode: BatchingMode): CapturedBatch[] {
+  if (mode !== "agent-message") return batches;
+
+  const out: CapturedBatch[] = [];
+  // current tracks the mutable merged batch being built for the current group.
+  // We spread into a plain object so we can mutate it without affecting the source.
+  let current: CapturedBatch & { userTurnGroup: number } | null = null;
+
+  for (const batch of batches) {
+    // Batches without a group key are passed through individually; they break
+    // any open merge group too since we can't confidently assign them a span.
+    if (batch.userTurnGroup === undefined) {
+      current = null;
+      out.push(batch);
+      continue;
+    }
+
+    if (current !== null && current.userTurnGroup === batch.userTurnGroup) {
+      // Same span — merge into the current accumulated batch
+      const textParts = [current.assistantText, batch.assistantText].filter(Boolean);
+      current.assistantText = textParts.join("\n\n");
+      current.toolCalls = current.toolCalls.concat(batch.toolCalls);
+      // Advance to the latest turn metadata
+      current.turnIndex = batch.turnIndex;
+      current.timestamp = batch.timestamp;
+    } else {
+      // New group — create a fresh accumulated batch (shallow copy so mutations
+      // to `current` do not bleed back into the original `batch` object)
+      current = { ...batch, userTurnGroup: batch.userTurnGroup };
+      out.push(current);
+    }
+  }
+
+  return out;
 }
