@@ -4,30 +4,30 @@ description: Fix `/pruner now` to show a blocking loader (mirroring `context_pru
 steps:
   - phase: discovery
     steps:
-      - "- [ ] step 1: confirm current `/pruner now` flow and why it does not block input or render a loader"
-      - "- [ ] step 2: confirm how `BorderedLoader` is used in pi (see docs/tui.md Pattern 2 + qna.ts example) and verify overlays prevent the user from sending new messages while open"
-      - "- [ ] step 3: re-trace how batches are produced today (one CapturedBatch per assistant turn from `captureUnindexedBatchesFromSession`) and identify where to insert a grouping step"
-      - "- [ ] step 4: identify the user-message boundary needed for `agent-message` grouping (walk the session branch and increment a userTurnGroup whenever a `role: \"user\"` SessionEntry is seen)"
+      - "- [x] step 1: confirm current `/pruner now` flow and why it does not block input or render a loader"
+      - "- [x] step 2: confirm how `BorderedLoader` is used in pi (see docs/tui.md Pattern 2 + qna.ts example) and verify overlays prevent the user from sending new messages while open"
+      - "- [x] step 3: re-trace how batches are produced today (one CapturedBatch per assistant turn from `captureUnindexedBatchesFromSession`) and identify where to insert a grouping step"
+      - "- [x] step 4: identify the user-message boundary needed for `agent-message` grouping (walk the session branch and increment a userTurnGroup whenever a `role: \"user\"` SessionEntry is seen)"
   - phase: design
     steps:
-      - "- [ ] step 1: spec the loader UX for `/pruner now` — `BorderedLoader` overlay titled `pruner: summarizing N turn(s)…`, opened before awaiting `flushPending`, closed in `finally`"
-      - "- [ ] step 2: spec re-entrancy — while the loader overlay is open, a second `/pruner now` invocation is impossible (input is captured by the overlay); also keep the existing `isFlushing` guard as defense in depth"
-      - "- [ ] step 3: spec abort behavior — Esc closes the loader and surfaces a notify, but does NOT cancel the in-flight summarizer LLM call (we keep it simple: loader is informational + blocking, not cancellable in v1). Decide: either disable Esc on the loader, or close the overlay and let the LLM call finish writing its result through `pi.sendMessage`/`appendCustomMessageEntry` as today"
-      - "- [ ] step 4: spec the new config field `batchingMode: \"turn\" | \"agent-message\"` in `ContextPruneConfig` with default `\"turn\"` (preserves today's behavior)"
-      - "- [ ] step 5: spec the grouping function `groupBatchesByMode(batches, mode): CapturedBatch[]` — `turn` returns batches unchanged; `agent-message` merges all consecutive batches that share a `userTurnGroup` into a single CapturedBatch (concatenating `assistantText` and `toolCalls`, keeping the latest `turnIndex` and `timestamp`, preserving original tool-call order)"
-      - "- [ ] step 6: spec where grouping happens — inside `flushPending`, after `captureUnindexedBatchesFromSession` + `trimBatchToPendingRange`, before `summarizeBatches`. Frontier advancement still uses the LAST tool call of the LAST processed (post-grouping) batch, so the frontier semantics remain correct"
-      - "- [ ] step 7: spec the `userTurnGroup` plumbing — extend `CapturedBatch` with an optional `userTurnGroup: number` field assigned in `captureUnindexedBatchesFromSession`; `captureBatch` (turn_end path) sets `userTurnGroup` to a sentinel that simply uses the assistant's own turn so per-turn behavior is unchanged when the queue is flushed turn-by-turn"
-      - "- [ ] step 8: spec settings UX — new `batchingMode` row in `/pruner settings` overlay + `/pruner batching [turn|agent-message]` subcommand with picker for the bare form, completion entry, help-text update"
+      - "- [x] step 1: spec the loader UX for `/pruner now` — `BorderedLoader` overlay titled `pruner: summarizing N turn(s)…`, opened before awaiting `flushPending`, closed in `finally`"
+      - "- [x] step 2: spec re-entrancy — while the loader overlay is open, a second `/pruner now` invocation is impossible (input is captured by the overlay); also keep the existing `isFlushing` guard as defense in depth"
+      - "- [x] step 3: spec abort behavior — Esc closes the loader and surfaces a notify, but does NOT cancel the in-flight summarizer LLM call (we keep it simple: loader is informational + blocking, not cancellable in v1). Decide: either disable Esc on the loader, or close the overlay and let the LLM call finish writing its result through `pi.sendMessage`/`appendCustomMessageEntry` as today"
+      - "- [x] step 4: spec the new config field `batchingMode: \"turn\" | \"agent-message\"` in `ContextPruneConfig` with default `\"turn\"` (preserves today's behavior)"
+      - "- [x] step 5: spec the grouping function `groupBatchesByMode(batches, mode): CapturedBatch[]` — `turn` returns batches unchanged; `agent-message` merges all consecutive batches that share a `userTurnGroup` into a single CapturedBatch (concatenating `assistantText` and `toolCalls`, keeping the latest `turnIndex` and `timestamp`, preserving original tool-call order)"
+      - "- [x] step 6: spec where grouping happens — inside `flushPending`, after `captureUnindexedBatchesFromSession` + `trimBatchToPendingRange`, before `summarizeBatches`. Frontier advancement still uses the LAST tool call of the LAST processed (post-grouping) batch, so the frontier semantics remain correct"
+      - "- [x] step 7: spec the `userTurnGroup` plumbing — extend `CapturedBatch` with an optional `userTurnGroup: number` field assigned in `captureUnindexedBatchesFromSession`; `captureBatch` (turn_end path) sets `userTurnGroup` to a sentinel that simply uses the assistant's own turn so per-turn behavior is unchanged when the queue is flushed turn-by-turn"
+      - "- [x] step 8: spec settings UX — new `batchingMode` row in `/pruner settings` overlay + `/pruner batching [turn|agent-message]` subcommand with picker for the bare form, completion entry, help-text update"
   - phase: implementation
     steps:
-      - "- [ ] step 1 (types): add `BatchingMode` type + `BATCHING_MODES` array + `batchingMode` field to `ContextPruneConfig` and `DEFAULT_CONFIG` in `src/types.ts`; add optional `userTurnGroup?: number` to `CapturedBatch`"
-      - "- [ ] step 2 (capture): in `src/batch-capture.ts`, walk the branch and assign `userTurnGroup` (incremented at every user message) to each CapturedBatch produced by `captureUnindexedBatchesFromSession`; keep `captureBatch` signature backwards-compatible (no group on the live `turn_end` path)"
-      - "- [ ] step 3 (grouping): add `groupBatchesByMode(batches, mode)` to `src/batch-capture.ts` (or a new `src/batch-grouping.ts`) implementing the merge rules from design step 5"
-      - "- [ ] step 4 (flush): in `index.ts` `flushPending`, after the trim filter, call `groupBatchesByMode(batches, currentConfig.value.batchingMode)` before `summarizeBatches`. Verify the per-batch summary loop, frontier advancement, and oversize handling still work with merged batches"
-      - "- [ ] step 5 (loader): introduce a helper in `src/commands.ts` (or a new `src/loader.ts`) that opens a `BorderedLoader` overlay via `ctx.ui.custom`, runs `flushPending`, and closes the overlay in finally. Use it from `/pruner now`. Ensure the loader title reflects the pending batch count"
-      - "- [ ] step 6 (commands UI): add the `batchingMode` row to the `/pruner settings` overlay (cycling between `turn` / `agent-message`, with a description string explaining the trade-off) and a top-level `/pruner batching [value]` subcommand + completions + HELP_TEXT entry"
-      - "- [ ] step 7 (status text): include batching mode in `/pruner status` output"
-      - "- [ ] step 8 (AGENTS.md): update the project-context section to describe the new field, grouping function, and loader helper"
+      - "- [x] step 1 (types): add `BatchingMode` type + `BATCHING_MODES` array + `batchingMode` field to `ContextPruneConfig` and `DEFAULT_CONFIG` in `src/types.ts`; add optional `userTurnGroup?: number` to `CapturedBatch`"
+      - "- [x] step 2 (capture): in `src/batch-capture.ts`, walk the branch and assign `userTurnGroup` (incremented at every user message) to each CapturedBatch produced by `captureUnindexedBatchesFromSession`; keep `captureBatch` signature backwards-compatible (no group on the live `turn_end` path)"
+      - "- [x] step 3 (grouping): add `groupBatchesByMode(batches, mode)` to `src/batch-capture.ts` (or a new `src/batch-grouping.ts`) implementing the merge rules from design step 5"
+      - "- [x] step 4 (flush): in `index.ts` `flushPending`, after the trim filter, call `groupBatchesByMode(batches, currentConfig.value.batchingMode)` before `summarizeBatches`. Verify the per-batch summary loop, frontier advancement, and oversize handling still work with merged batches"
+      - "- [x] step 5 (loader): introduce a helper in `src/commands.ts` (or a new `src/loader.ts`) that opens a `BorderedLoader` overlay via `ctx.ui.custom`, runs `flushPending`, and closes the overlay in finally. Use it from `/pruner now`. Ensure the loader title reflects the pending batch count"
+      - "- [x] step 6 (commands UI): add the `batchingMode` row to the `/pruner settings` overlay (cycling between `turn` / `agent-message`, with a description string explaining the trade-off) and a top-level `/pruner batching [value]` subcommand + completions + HELP_TEXT entry"
+      - "- [x] step 7 (status text): include batching mode in `/pruner status` output"
+      - "- [x] step 8 (AGENTS.md): update the project-context section to describe the new field, grouping function, and loader helper"
   - phase: validation-plan
     steps:
       - "- [ ] step 1: manual repro — `/pruner prune-on on-demand`, run an agent task that produces 2 user→agent spans (first span: 2 tool calls; second span: 2 tool calls). With `batchingMode: turn` expect 4 summary messages; with `batchingMode: agent-message` expect 2 summary messages"
