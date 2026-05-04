@@ -1,6 +1,7 @@
 import {
   type ContextPruneConfig,
   type SummarizerStats,
+  type CapturedBatch,
   PRUNE_ON_MODES,
   BATCHING_MODES,
   STATUS_WIDGET_ID,
@@ -10,8 +11,9 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import { saveConfig } from "./config.js";
 import { formatTokens, formatCost } from "./stats.js";
 import { Container, Text, SettingsList, type SettingItem } from "@mariozechner/pi-tui";
-import { BorderedLoader, DynamicBorder, getSettingsListTheme } from "@mariozechner/pi-coding-agent";
+import { DynamicBorder, getSettingsListTheme } from "@mariozechner/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
+import { MultiBatchLoaderOverlay } from "./multi-batch-loader.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
 /**
@@ -222,10 +224,11 @@ Settings are saved to ~/.pi/agent/context-prune/settings.json`;
 export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
-  flushPending: (ctx: ExtensionCommandContext) => Promise<
+  flushPending: (ctx: ExtensionCommandContext, options?: { delivery?: "runtime" | "session"; onProgress?: (index: number, total: number, batch: CapturedBatch, stage: "start" | "done" | "skipped") => void; previewedBatches?: CapturedBatch[] }) => Promise<
     | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
     | { ok: false; reason: string; error?: string }
   >,
+  capturePendingBatches: (ctx: ExtensionCommandContext) => CapturedBatch[],
   syncToolActivation: () => void,
   getStats: () => SummarizerStats,
   indexer: ToolCallIndexer,
@@ -589,22 +592,35 @@ export function registerCommands(
             return;
           }
 
-          // Show a blocking BorderedLoader overlay while the summarizer is running.
-          // The overlay captures input (the editor is hidden behind it) so the user
-          // cannot submit a new prompt or run a second /pruner now while pruning is
-          // in flight. Esc closes the overlay early but does NOT cancel the in-flight
-          // LLM call — the flush continues writing its result via sendMessage or
-          // appendCustomMessageEntry as normal.
+          // Preview the pending batches BEFORE opening the overlay so we know
+          // how many rows to pre-build. An empty queue exits early with no UI.
+          const batches = capturePendingBatches(ctx);
+          if (batches.length === 0) {
+            ctx.ui.notify("pruner: nothing pending — no batches to summarize", "info");
+            break;
+          }
+
+          // Show a blocking MultiBatchLoaderOverlay while the summarizer runs.
+          // Each batch row starts with an animated spinner and is checked off
+          // as its individual LLM call completes, giving the user concrete
+          // progress feedback instead of a single static message.
+          // Esc closes the overlay early but does NOT cancel in-flight LLM calls.
           type FlushResult = Awaited<ReturnType<typeof flushPending>>;
           let flushResult: FlushResult | null = null;
 
           await ctx.ui.custom<undefined>(
             (tui, theme, _kb, done) => {
-              const loader = new BorderedLoader(tui, theme, "pruner: summarizing…");
-              // Esc: close overlay only — does NOT abort the LLM call
-              loader.onAbort = () => done(undefined);
+              const overlay = new MultiBatchLoaderOverlay(tui, theme, batches);
+              overlay.onAbort = () => done(undefined);
 
-              flushPending(ctx)
+              flushPending(ctx, {
+                previewedBatches: batches,
+                onProgress: (index, _total, _batch, stage) => {
+                  if (stage === "done") overlay.markDone(index);
+                  else if (stage === "skipped") overlay.markSkipped(index);
+                  else overlay.markRunning(index);
+                },
+              })
                 .then((r) => {
                   flushResult = r;
                   done(undefined);
@@ -613,7 +629,7 @@ export function registerCommands(
                   done(undefined);
                 });
 
-              return loader;
+              return overlay;
             },
             { overlay: true },
           );

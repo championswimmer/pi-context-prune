@@ -16,13 +16,13 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { loadConfig } from "./src/config.js";
 import { captureBatch, captureUnindexedBatchesFromSession, groupBatchesByMode } from "./src/batch-capture.js";
-import { summarizeBatches } from "./src/summarizer.js";
+import { summarizeBatch, summarizeBatches } from "./src/summarizer.js";
 import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
 import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminder.js";
 import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, setPruneStatusWidget } from "./src/commands.js";
-import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier } from "./src/types.js";
+import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, FlushOptions } from "./src/types.js";
 import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
@@ -130,34 +130,37 @@ export default function (pi: ExtensionAPI) {
     appendEntry(CUSTOM_TYPE_INDEX, { toolCalls: records } as IndexEntryData);
   };
 
-  // Summarizes + indexes all pending batches in a single LLM call.
-  // Runtime delivery is used while the agent/tool loop is active so Pi can place
-  // steer messages at protocol-safe boundaries. Session delivery is used only for
-  // agent-message's final-message flush, where print-mode Pi may invalidate pi.*
-  // while the summarizer LLM call is in flight.
-  const flushPending = async (ctx: any, options: { delivery?: "runtime" | "session" } = {}): Promise<FlushResult> => {
-    if (isFlushing) return { ok: false, reason: "already-flushing" };
-
-    // Capture everything unindexed from the session branch. This ensures that
-    // even tool results from the current in-progress turn (which haven't fired
-    // turn_end yet) are included when the agent calls context_prune.
+  // ── Helper: capture + trim + group pending batches (no LLM work) ──────────
+  // Exposed to commands.ts via registerCommands so /pruner now can preview the
+  // queue before opening the multi-row progress overlay.
+  const capturePendingBatches = (ctx: any): CapturedBatch[] => {
     let batches: CapturedBatch[] = [];
     try {
       const branch = ctx.sessionManager.getBranch();
       batches = captureUnindexedBatchesFromSession(branch, indexer, [CONTEXT_PRUNE_TOOL_NAME]);
-    } catch (err) {
-      // Fallback: if we can't access the branch (e.g. stale context), use the queued batches
+    } catch {
       batches = pendingBatches.slice();
     }
-
     batches = batches
       .map((batch) => trimBatchToPendingRange(batch))
       .filter((batch): batch is CapturedBatch => batch !== null);
+    return groupBatchesByMode(batches, currentConfig.value.batchingMode);
+  };
 
-    // Apply batching mode: in "agent-message" mode consecutive batches that
-    // share the same userTurnGroup are merged into a single CapturedBatch so
-    // the summarizer produces one summary per user→final-agent-message span.
-    batches = groupBatchesByMode(batches, currentConfig.value.batchingMode);
+  // Summarizes + indexes all pending batches.
+  // When options.onProgress is provided batches are processed sequentially
+  // (one LLM call each) so the caller can update per-row UI. Otherwise all
+  // batches are summarized in parallel (one summarizeBatches call).
+  // Runtime delivery is used while the agent/tool loop is active so Pi can place
+  // steer messages at protocol-safe boundaries. Session delivery is used only for
+  // agent-message's final-message flush, where print-mode Pi may invalidate pi.*
+  // while the summarizer LLM call is in flight.
+  const flushPending = async (ctx: any, options: FlushOptions = {}): Promise<FlushResult> => {
+    if (isFlushing) return { ok: false, reason: "already-flushing" };
+
+    // Use pre-captured batches if provided (avoids double-capture when the
+    // caller previewed the queue before opening the progress overlay).
+    let batches: CapturedBatch[] = options.previewedBatches ?? capturePendingBatches(ctx);
 
     if (batches.length === 0) return { ok: false, reason: "empty" };
 
@@ -187,9 +190,22 @@ export default function (pi: ExtensionAPI) {
     try {
       setPruneStatusWidget(ctx, currentConfig.value, "prune: summarizing…");
 
-      // Summarize all pending batches in parallel — one LLM call per batch,
-      // each producing its own independent summary message (one per turn).
-      const results = await summarizeBatches(batches, currentConfig.value, ctx);
+      // Summarize batches. When onProgress is provided (i.e. /pruner now with the
+      // multi-row overlay) we process sequentially so each row can be checked off
+      // as its LLM call completes. Otherwise all batches run in parallel.
+      let results: (import("./src/types.js").SummarizeResult | null)[];
+      if (options.onProgress) {
+        results = [];
+        for (let i = 0; i < batches.length; i++) {
+          options.onProgress(i, batches.length, batches[i], "start");
+          const r = await summarizeBatch(batches[i], currentConfig.value, ctx);
+          results.push(r);
+          options.onProgress(i, batches.length, batches[i], r ? "done" : "skipped");
+        }
+      } else {
+        // Parallel — one LLM call per batch, all in flight simultaneously.
+        results = await summarizeBatches(batches, currentConfig.value, ctx);
+      }
 
       // Process results in order; stop at first null (individual call failure).
       // Batches before the first failure are persisted; remaining are restored to
@@ -531,5 +547,5 @@ export default function (pi: ExtensionAPI) {
   registerContextPruneTool(pi, (ctx) => flushPending(ctx, { delivery: "runtime" }));
 
   // ── Register /pruner command + summary message renderer ────────────
-  registerCommands(pi, currentConfig, flushPending, syncToolActivation, () => statsAccum.getStats(), indexer);
+  registerCommands(pi, currentConfig, flushPending, capturePendingBatches, syncToolActivation, () => statsAccum.getStats(), indexer);
 }

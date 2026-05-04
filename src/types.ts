@@ -301,6 +301,36 @@ export interface PruneFrontier {
 }
 
 /**
+ * Progress callback invoked by `flushPending` when processing batches sequentially.
+ * Only fired when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
+ */
+export type ProgressCallback = (
+  index: number,
+  total: number,
+  batch: CapturedBatch,
+  stage: "start" | "done" | "skipped",
+) => void;
+
+/** Options accepted by `flushPending`. */
+export interface FlushOptions {
+  /** Delivery path: "runtime" uses sendMessage/steer (default); "session" writes directly to session. */
+  delivery?: "runtime" | "session";
+  /**
+   * When provided, batches are processed sequentially (one LLM call each) instead of
+   * in parallel, and this callback is invoked before/after each batch. Used by
+   * `/pruner now` to drive the multi-row progress overlay.
+   */
+  onProgress?: ProgressCallback;
+  /**
+   * Pre-captured batches from a prior `capturePendingBatches()` call.
+   * When set, `flushPending` skips the internal capture step and uses these directly.
+   * Avoids double-capture when the caller needs to know the batch count before
+   * opening the progress overlay.
+   */
+  previewedBatches?: CapturedBatch[];
+}
+
+/**
  * Result of a summarization call — the summary text plus LLM usage data.
  */
 export interface SummarizeResult {
