@@ -36,7 +36,7 @@ message that never changes.
 ## Phases
 
 ### Phase 1 — Types
-- [ ] Add `ProgressCallback` type to `src/types.ts`:
+- [x] Add `ProgressCallback` type to `src/types.ts`:
   ```ts
   export type ProgressCallback = (
     index: number, total: number,
@@ -44,7 +44,7 @@ message that never changes.
     stage: "start" | "done" | "skipped"
   ) => void;
   ```
-- [ ] Add `FlushOptions` interface to `src/types.ts`:
+- [x] Add `FlushOptions` interface to `src/types.ts`:
   ```ts
   export interface FlushOptions {
     delivery?: "runtime" | "session";
@@ -54,7 +54,7 @@ message that never changes.
   ```
 
 ### Phase 2 — `src/multi-batch-loader.ts` (new file)
-- [ ] Create `MultiBatchLoaderOverlay extends Container`
+- [x] Create `MultiBatchLoaderOverlay extends Container`
   - Constructor: `(tui: TUI, theme: Theme, batches: CapturedBatch[])`
   - Builds: one `DynamicBorder` top + header `Text` + one `Loader` per batch + `DynamicBorder` bottom
   - Each `Loader` label: `Batch N/M (K tool call(s)) — summarizing…`
@@ -64,16 +64,16 @@ message that never changes.
   - `onAbort` setter + `handleInput` forwarding Esc → `_onAbort?.()`
 
 ### Phase 3 — `index.ts`
-- [ ] Extract `capturePendingBatches(ctx): CapturedBatch[]` private helper from `flushPending`
+- [x] Extract `capturePendingBatches(ctx): CapturedBatch[]` private helper from `flushPending`
   (the capture + trim + group steps; no LLM work)
-- [ ] Change `flushPending` signature to accept `FlushOptions` (typed)
-- [ ] When `options.previewedBatches` is set, skip the capture step and use the provided array
-- [ ] When `options.onProgress` is set, replace `summarizeBatches` with a sequential `for` loop
+- [x] Change `flushPending` signature to accept `FlushOptions` (typed)
+- [x] When `options.previewedBatches` is set, skip the capture step and use the provided array
+- [x] When `options.onProgress` is set, replace `summarizeBatches` with a sequential `for` loop
   calling `summarizeBatch` + `onProgress("start")` before and `onProgress("done"|"skipped")` after
-- [ ] Pass `capturePendingBatches` as a new arg to `registerCommands(...)`
+- [x] Pass `capturePendingBatches` as a new arg to `registerCommands(...)`
 
 ### Phase 4 — `src/commands.ts`
-- [ ] Update `registerCommands` signature to accept `capturePendingBatches: (ctx) => CapturedBatch[]`
+- [x] Update `registerCommands` signature to accept `capturePendingBatches: (ctx) => CapturedBatch[]`
 - [ ] In `case "now"`:
   1. Call `capturePendingBatches(ctx)` before opening the overlay
   2. If empty, `ctx.ui.notify("pruner: nothing pending", "info")` and break
@@ -82,7 +82,7 @@ message that never changes.
   5. Call `flushPending(ctx, { previewedBatches: batches, onProgress: (i, _t, _b, stage) => ... })`
      updating the overlay rows live
   6. After flush resolves, call `done(undefined)` and notify with the `FlushResult`
-- [ ] Import `MultiBatchLoaderOverlay` from `./multi-batch-loader`
+- [x] Import `MultiBatchLoaderOverlay` from `./multi-batch-loader`
 
 ### Phase 5 — `AGENTS.md`
 - [ ] Document `MultiBatchLoaderOverlay` in the Code Structure section
