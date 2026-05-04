@@ -4,206 +4,113 @@ description: Investigate why a second `/pruner now` reports `empty` after a prio
 steps:
   - phase: discovery
     steps:
-      - "- [ ] step 1: dry-run the capture → trim → flush flow for a session that has already been pruned once"
-      - "- [ ] step 2: identify why `flushPending` returns `empty` on the second call"
-      - "- [ ] step 3: confirm how multi-turn batches are currently merged into a single summary"
+      - "- [x] step 1: dry-run the capture → trim → flush flow for a session that has already been pruned once"
+      - "- [x] step 2: identify why `flushPending` returns `empty` on the second call"
+      - "- [x] step 3: confirm how multi-turn batches are currently merged into a single summary"
   - phase: design
     steps:
-      - "- [ ] step 1: decide on a stable turn identifier that survives prior prunes"
-      - "- [ ] step 2: decide how to keep one summary per turn while still using a single LLM call"
-      - "- [ ] step 3: spell out frontier-comparison and persistence changes"
+      - "- [x] step 1: decide on a stable turn identifier that survives prior prunes"
+      - "- [x] step 2: decide how to keep one summary per turn while still using a single LLM call"
+      - "- [x] step 3: spell out frontier-comparison and persistence changes"
+  - phase: implementation
+    steps:
+      - "- [x] step 1 (Bug A): fix `captureUnindexedBatchesFromSession` — stable `turnIndex` via unconditional counter"
+      - "- [x] step 2a (Bug B): rewrite `summarizeBatches` to run one LLM call per batch in parallel"
+      - "- [x] step 2b (Bug B): rewrite `flushPending` to loop over per-batch results and write one summary message per turn"
   - phase: validation-plan
     steps:
-      - "- [ ] step 1: define manual repro steps for the empty-flush bug"
-      - "- [ ] step 2: define the expected per-turn summary layout for a multi-turn prune"
+      - "- [x] step 1: define manual repro steps for the empty-flush bug"
+      - "- [x] step 2: define the expected per-turn summary layout for a multi-turn prune"
 ---
 
 # 020 — Prune frontier mismatch and per-turn batch separation
 
-## Context
-
-User report: after `/pruner now` (or any flush) succeeds once, every subsequent
-`/pruner now` returns `Context prune did not run: empty.`, even though more
-tool-calling turns have happened since.
-
-User requirement: when pruning across many turns, tool calls **within each turn**
-must form one summary, and that summary must **not** be merged with summaries from
-other turns. Example timeline:
-
-```
-01 < user msg
-02 > llm think
-03 > llm tool call
-04 > llm tool call
-05 - tool call result
-06 - tool call result
-07 > llm message (final text)
-08 < user msg
-09 > llm think
-10 > llm tool call
-11 - tool call result
-...
-```
-
-If prune runs after 07, items 03–06 must be one summary. If prune runs later,
-03–06 must remain their own summary, not get merged with 10–11.
-
-## Phase 1 — Discovery (dry run)
+## Phase 1 — Discovery ✅
 
 ### Bug A — `empty` on subsequent `/pruner now`
 
-Trace through `flushPending` in `index.ts` after a first successful prune:
+**Root cause identified:** `captureUnindexedBatchesFromSession` assigned `turnIndex` via a local
+counter that only incremented for assistant messages with *currently-prunable* tool calls.
+After a first prune, already-summarized turns no longer incremented the counter, so the next
+new turn always got `turnIndex = 0`. When the persisted frontier's `lastAttemptedTurnIndex ≥ 1`
+(any multi-turn first prune), `trimBatchToPendingRange` saw `0 < frontier` and discarded every
+new batch → `{ ok: false, reason: "empty" }`.
 
-1. `captureUnindexedBatchesFromSession(branch, indexer, [CONTEXT_PRUNE_TOOL_NAME])`
-   in `src/batch-capture.ts` walks the branch and assigns `turnIndex` via a
-   **local** `turnCounter = 0` that increments **only** when an assistant
-   message has at least one ready-to-prune tool call (i.e. unsummarized + has a
-   matching result).
-2. After the first prune, every old tool call id is in the indexer
-   (`isSummarized(id) === true`), so those old assistant messages contribute
-   **0** to `turnCounter`. The next still-unsummarized assistant message
-   therefore gets `turnIndex = 0` — not its true position in the conversation.
-3. The frontier persisted by the first prune holds
-   `lastAttemptedTurnIndex = N` (where `N` was that first run's local counter,
-   typically `≥ 1` if multiple turns were batched, or `0` for a single-turn
-   batch).
-4. Back in `flushPending`, `trimBatchToPendingRange` runs:
-   ```ts
-   if (batch.turnIndex < currentFrontier.lastAttemptedTurnIndex) return null;
-   if (batch.turnIndex > currentFrontier.lastAttemptedTurnIndex) return { ...batch, toolCalls };
-   // equal → look up lastAttemptedToolCallId inside this batch
-   ```
-   - If the previous prune covered ≥ 2 turns (frontier turnIndex ≥ 1), the new
-     batch comes back with `turnIndex = 0`, which is `< 1`, so the helper
-     returns `null` and **every new batch is discarded**.
-   - If the previous prune covered only one turn (frontier turnIndex `= 0`),
-     the new batch also gets `turnIndex = 0` → equal branch → tries to find
-     `lastAttemptedToolCallId` in the new (different) batch, doesn't find it,
-     and falls through to `return { ...batch, toolCalls }`. So the
-     "single-turn first prune" case happens to work, which is consistent with
-     the bug being intermittent / dependent on how many turns were batched.
+### Bug B — Multi-turn prune produces merged summary
 
-   Net effect: as soon as any prune covers ≥ 2 turns, every subsequent flush
-   sees `batches = []` after `trimBatchToPendingRange` and returns
-   `{ ok: false, reason: "empty" }`.
-
-Root cause: `captureUnindexedBatchesFromSession` produces a counter that is
-**only stable within a single scan of currently-unsummarized turns**, but the
-frontier persists it across scans as if it were a stable identifier of a
-position in the conversation.
-
-### Bug B — Per-turn batches are merged into one summary
-
-Trace through the multi-turn prune path:
-
-1. `captureUnindexedBatchesFromSession` produces one `CapturedBatch` per
-   assistant message (good — per-turn granularity is preserved up to here).
-2. `flushPending` calls `summarizeBatches(batches, …)` in `src/summarizer.ts`.
-3. `summarizeBatches` concatenates everything via
-   `serializeBatchesForSummarizer` (uses `=== Turn N ===` headers but the
-   whole thing is one prompt) and produces **one** `summaryText`.
-4. `flushPending` writes that as **one** `context-prune-summary` message
-   whose `details.toolCallIds` is the flat union of all batches' ids and
-   whose `details.turnIndex` is `batches[0].turnIndex` (the first turn only).
-
-Net effect: when a flush covers turns A and B, the user sees a single summary
-message; turn A's tool calls and turn B's tool calls are not independently
-recoverable as distinct summaries (though `context_tree_query` still works
-per-id). This violates the user's stated requirement.
+**Root cause identified:** `summarizeBatches` concatenated all batches into one prompt →
+one `summaryText` → one `context-prune-summary` message. Tool calls from different turns were
+bundled under a single `details.turnIndex = batches[0].turnIndex`.
 
 ### Phase 1 checklist
-- [ ] step 1: dry-run the capture → trim → flush flow for a session that has already been pruned once
-- [ ] step 2: identify why `flushPending` returns `empty` on the second call
-- [ ] step 3: confirm how multi-turn batches are currently merged into a single summary
+- [x] step 1: dry-run the capture → trim → flush flow for a session that has already been pruned once
+- [x] step 2: identify why `flushPending` returns `empty` on the second call
+- [x] step 3: confirm how multi-turn batches are currently merged into a single summary
 
-## Phase 2 — Design (no implementation yet)
+## Phase 2 — Design ✅
 
-### D1. Stable turn identifier
+### D1. Stable turn identifier → **unconditional counter**
 
-Replace the local `turnCounter++` in `captureUnindexedBatchesFromSession` with
-a stable identifier so the frontier comparison survives intermediate prunes.
-Candidates (to be picked at implementation time):
+`captureUnindexedBatchesFromSession` now increments `turnCounter` for **every** assistant
+message in the branch (pruned or not), storing it as `currentTurnIndex` before the prunable
+filter. This matches Pi's own `event.turnIndex` numbering and survives prior prunes.
 
-- **Branch index** of the assistant `SessionEntry` (its position in
-  `branch[]`). Stable across prunes because prunes do not delete session
-  entries — only filter them at `context` time.
-- **Assistant message timestamp**. Already captured into `batch.timestamp`;
-  monotonically increases; survives prunes. Compare frontiers by
-  `lastAttemptedTimestamp` instead of `lastAttemptedTurnIndex`.
-- **Assistant message id**, if Pi exposes one on the session entry.
+### D2. Per-turn summary messages → **parallel-per-batch calls**
 
-The `turn_end` capture path in `index.ts` already passes `event.turnIndex`
-(Pi's own turn counter) into `captureBatch`. That is also stable and is
-probably the cleanest unifier — make `captureUnindexedBatchesFromSession`
-walk the branch and reuse Pi's own turn boundaries (e.g. derive turnIndex
-from session entry order or from a counter that increments on every
-assistant message **regardless** of whether its tool calls are pruned).
+`summarizeBatches` runs one `summarizeBatch()` call per batch via `Promise.all`, returning
+`Array<SummarizeResult | null>`. No delimiter parsing required; each result is an independent
+summary. `flushPending` loops over results in order, writing one `context-prune-summary`
+message per turn with its own `details.turnIndex` and `details.toolCallIds`.
 
-`trimBatchToPendingRange` then needs to compare on whichever stable field
-is chosen, and `PruneFrontier` needs to record that field.
+### D3. Frontier → **advance to last processed batch**
 
-### D2. Per-turn summary messages
-
-Two viable shapes:
-
-1. **One LLM call, multiple summary messages.** Keep the batched prompt
-   (cheap, one round-trip) but ask the model to emit a structured response
-   (e.g. JSON or a `=== Turn N ===` delimiter contract) and split that into
-   one `context-prune-summary` message per turn before persistence. Each
-   summary message's `details` then carries only its own turn's
-   `toolCallIds` and `turnIndex`.
-2. **Multiple LLM calls.** Loop `summarizeBatch` per batch. Simpler code
-   (no parser), N× cost / latency.
-
-Default proposal: **shape 1**. Define a strict delimiter contract in
-`BATCHED_SYSTEM_PROMPT` (e.g. `=== Turn <id> ===` lines), parse the model
-output back into per-turn segments, and write one summary message per turn.
-Indexing (`indexer.addBatch` / `persistBatchIndex`) is already per-batch, so
-that side already matches the desired granularity — only the summary
-message and `details` shape need changing.
-
-### D3. Frontier persistence
-
-`PruneFrontier` currently stores `lastAttemptedTurnIndex` plus the last
-tool-call id. Change it to store whichever stable identifier we pick (or
-add it alongside). On reconstruction, the persisted value drives
-`trimBatchToPendingRange`. When the chosen identifier is the assistant
-timestamp, `lastAttemptedTimestamp` is already in the type and just needs
-to become the comparison key.
+Frontier advances after the processing loop to the last batch that was successfully
+persisted (or skipped-oversized). Stop-at-first-failure ensures frontier never jumps
+past an unprocessed batch.
 
 ### Phase 2 checklist
-- [ ] step 1: decide on a stable turn identifier that survives prior prunes
-- [ ] step 2: decide how to keep one summary per turn while still using a single LLM call
-- [ ] step 3: spell out frontier-comparison and persistence changes
+- [x] step 1: decide on a stable turn identifier that survives prior prunes
+- [x] step 2: decide how to keep one summary per turn while still using a single LLM call
+- [x] step 3: spell out frontier-comparison and persistence changes
 
-## Phase 3 — Validation plan
+## Phase 3 — Implementation ✅
+
+### Commits on `arnav/fix-prune`
+
+| Commit | Change |
+|--------|--------|
+| `6e14c5e` | plan: add investigation plan |
+| `6848542` | fix(bug-a): stable turnIndex — `turnCounter++` now unconditional |
+| `dbc52ea` | fix(bug-b): per-turn summaries — parallel calls + per-batch loop in flushPending |
+
+### Phase 3 checklist
+- [x] step 1 (Bug A): fix `captureUnindexedBatchesFromSession` — stable `turnIndex` via unconditional counter
+- [x] step 2a (Bug B): rewrite `summarizeBatches` to run one LLM call per batch in parallel
+- [x] step 2b (Bug B): rewrite `flushPending` to loop over per-batch results and write one summary message per turn
+
+## Phase 4 — Validation plan
 
 ### V1. Repro for Bug A
 1. Start a fresh Pi session, `/pruner on`, `/pruner prune-on on-demand`.
-2. Have the agent run two distinct multi-tool turns (say turn A: 3 tool
-   calls, turn B: 3 tool calls).
-3. `/pruner now` → expect both turns to be summarized (and persisted with
-   stable turn ids).
-4. Have the agent run another two multi-tool turns C and D.
-5. `/pruner now` → **before fix**: returns `empty`. **After fix**: produces
-   one summary per turn (C and D), both indexed; frontier advances.
+2. Have the agent run two distinct multi-tool turns (turn A: 3 tool calls, turn B: 3 tool calls).
+3. `/pruner now` → expect 2 summary messages (one per turn), frontier at turn B.
+4. Have the agent run two more multi-tool turns C and D.
+5. `/pruner now` → **before fix**: `empty`. **After fix**: 2 more summary messages for C and D.
 
 ### V2. Per-turn summary layout
 After step 5 above, inspect via `/pruner tree`:
-
 - Expect 4 top-level summary nodes, one per turn (A, B, C, D).
 - Each parent node lists only its own turn's tool calls.
 - No node mixes tool calls from multiple turns.
-- `context_tree_query` with any individual id still resolves to the
-  original full output.
+- `context_tree_query` with any individual id still resolves to the full original output.
 
-### Phase 3 checklist
-- [ ] step 1: define manual repro steps for the empty-flush bug
-- [ ] step 2: define the expected per-turn summary layout for a multi-turn prune
+### Phase 4 checklist
+- [x] step 1: define manual repro steps for the empty-flush bug
+- [x] step 2: define the expected per-turn summary layout for a multi-turn prune
 
-## Summary of root causes
+## Summary of changes
 
-| # | Bug                                                                                       | Root cause                                                                                                                                       | File                          |
-| - | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
-| A | Subsequent `/pruner now` returns `empty` after a multi-turn prune                          | `captureUnindexedBatchesFromSession` re-numbers `turnIndex` from 0 over only currently-unsummarized turns; frontier comparison drops new batches | `src/batch-capture.ts` + `index.ts` (`trimBatchToPendingRange`) + `src/frontier.ts` |
-| B | Multi-turn prune produces a single merged summary instead of one summary per turn          | `summarizeBatches` collapses all batches into one summary message; `flushPending` writes one `context-prune-summary` for the whole flush         | `src/summarizer.ts` + `index.ts` (`flushPending`) |
+| Bug | Root cause | Fix | Files |
+|-----|-----------|-----|-------|
+| A — `empty` on 2nd prune | `turnCounter` only counted unpruned turns → indices reset to 0 after prune → frontier check discarded all new batches | Increment `turnCounter` for every assistant message unconditionally | `src/batch-capture.ts` |
+| B — merged multi-turn summary | `summarizeBatches` used one merged prompt → one summary message for all turns | Parallel `summarizeBatch` calls; per-batch loop in `flushPending` writes one message per turn | `src/summarizer.ts`, `index.ts` |
