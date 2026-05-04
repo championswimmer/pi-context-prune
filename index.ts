@@ -15,7 +15,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { loadConfig } from "./src/config.js";
-import { captureBatch, captureUnindexedBatchesFromSession } from "./src/batch-capture.js";
+import { captureBatch, captureUnindexedBatchesFromSession, groupBatchesByMode } from "./src/batch-capture.js";
 import { summarizeBatches } from "./src/summarizer.js";
 import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
@@ -153,6 +153,11 @@ export default function (pi: ExtensionAPI) {
     batches = batches
       .map((batch) => trimBatchToPendingRange(batch))
       .filter((batch): batch is CapturedBatch => batch !== null);
+
+    // Apply batching mode: in "agent-message" mode consecutive batches that
+    // share the same userTurnGroup are merged into a single CapturedBatch so
+    // the summarizer produces one summary per user→final-agent-message span.
+    batches = groupBatchesByMode(batches, currentConfig.value.batchingMode);
 
     if (batches.length === 0) return { ok: false, reason: "empty" };
 
