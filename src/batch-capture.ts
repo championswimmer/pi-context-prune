@@ -82,9 +82,23 @@ export function captureUnindexedBatchesFromSession(
   // always matches Pi's own event.turnIndex numbering.
   let turnCounter = 0;
 
+  // userTurnGroup increments on every user message seen while walking the branch.
+  // All assistant tool-call batches between two consecutive user messages share the
+  // same userTurnGroup. This is used by groupBatchesByMode to merge turns within
+  // a single user → final-agent-message span when batchingMode === "agent-message".
+  let userTurnGroup = 0;
+
   for (const entry of branch) {
     if (entry.type !== "message") continue;
     const msg = entry.message;
+
+    // Advance userTurnGroup on every user message so all subsequent assistant
+    // batches get a new group number.
+    if (msg.role === "user") {
+      userTurnGroup++;
+      continue;
+    }
+
     if (msg.role !== "assistant") continue;
 
     // Stable turn index: count every assistant message regardless of pruning state
@@ -115,6 +129,8 @@ export function captureUnindexedBatchesFromSession(
       batches.push({
         ...batch,
         toolCalls: batch.toolCalls.filter((tc) => readyIds.has(tc.toolCallId)),
+        // Tag with the current group so flushPending can merge by mode
+        userTurnGroup,
       });
     }
   }
