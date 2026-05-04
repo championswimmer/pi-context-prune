@@ -101,6 +101,14 @@ What happens when you call context_prune:
  */
 export type PruneOn = "every-turn" | "on-context-tag" | "on-demand" | "agent-message" | "agentic-auto";
 
+/**
+ * Granularity of pruning batches.
+ * - "turn"          : one summary per assistant turn (default; current behavior)
+ * - "agent-message" : one summary per full user → final-agent-message span
+ *                     (merges all turns between two consecutive user messages)
+ */
+export type BatchingMode = "turn" | "agent-message";
+
 /** Thinking/reasoning level requested for summarizer LLM calls. */
 export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -113,6 +121,12 @@ export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: str
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "xhigh", label: "XHigh" },
+];
+
+/** Choices for the batching-mode setting (used by commands and settings overlay) */
+export const BATCHING_MODES: { value: BatchingMode; label: string }[] = [
+  { value: "turn", label: "Per turn" },
+  { value: "agent-message", label: "Per agent message" },
 ];
 
 /** Choices for the prune-on setting (used by commands and settings overlay) */
@@ -148,6 +162,13 @@ export interface ContextPruneConfig {
    * call `context_prune` at a sensible cadence).
    */
   remindUnprunedCount: boolean;
+  /**
+   * Granularity of each pruning batch.
+   * - "turn"          : one summary per assistant turn (default)
+   * - "agent-message" : one summary per user → final-agent-message span
+   *                     (all turns between two user messages are merged)
+   */
+  batchingMode: BatchingMode;
 }
 
 export const DEFAULT_CONFIG: ContextPruneConfig = {
@@ -157,6 +178,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   summarizerThinking: "default",
   pruneOn: "agent-message",
   remindUnprunedCount: true,
+  batchingMode: "turn",
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────
@@ -180,6 +202,15 @@ export interface CapturedBatch {
   /** Any non-tool-call text from the assistant message (may be empty) */
   assistantText: string;
   toolCalls: CapturedToolCall[];
+  /**
+   * Grouping key assigned by `captureUnindexedBatchesFromSession`.
+   * Increments for each user message seen while walking the branch.
+   * Batches from the live `turn_end` path do NOT have this field set
+   * (they are always emitted one-per-turn regardless of batchingMode).
+   * Used by `groupBatchesByMode` to merge turns within the same
+   * user → agent-message span when batchingMode === "agent-message".
+   */
+  userTurnGroup?: number;
 }
 
 // ── Index record ───────────────────────────────────────────────────────────
