@@ -60,7 +60,7 @@ Wires all modules together and registers Pi event handlers:
 
 ### `src/types.ts` — Shared types and constants
 Single source of truth for all interfaces and constants:
-- **`CapturedBatch`** / **`CapturedToolCall`** — snapshot of one assistant turn's tool calls + results. `CapturedBatch` also carries `assistantText` (any non-tool-call text from the assistant message).
+- **`CapturedBatch`** / **`CapturedToolCall`** — snapshot of one assistant turn's tool calls + results. `CapturedBatch` carries `assistantText` (any non-tool-call text from the assistant message) and an optional `userTurnGroup` field set by `captureUnindexedBatchesFromSession` to identify which user→agent span the batch belongs to (used for `agent-message` batching mode).
 - **`ToolCallRecord`** — full record stored in the runtime index (includes original `resultText`).
 - **`IndexEntryData`** — data shape written to session via `pi.appendEntry` for persistence across restarts.
 - **`PruneOn`** — `"every-turn" | "on-context-tag" | "on-demand" | "agent-message" | "agentic-auto"` — when summarization is triggered:
@@ -69,10 +69,14 @@ Single source of truth for all interfaces and constants:
   - `on-demand`: only when the user runs `/pruner now`.
   - `agent-message`: batch turns, flush when the agent sends a final text-only response (default).
   - `agentic-auto`: the LLM decides when to prune by calling the `context_prune` tool, guided by `AGENTIC_AUTO_SYSTEM_PROMPT`.
+- **`BatchingMode`** — `"turn" | "agent-message"` — granularity of each pruning batch.
+  - `turn`: one summary per assistant turn (default; current behavior).
+  - `agent-message`: all assistant turns between two consecutive user messages are merged into a single summary.
 - **`SummarizerThinking`** — `"default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh"` — reasoning effort level to pass to the summarizer LLM. `"default"` omits the option entirely (provider default); other values set `reasoningEffort` in the `complete()` call options.
 - **`PRUNE_ON_MODES`** — `{ value, label }` array for interactive selectors.
+- **`BATCHING_MODES`** — `{ value, label }` array for interactive selectors.
 - **`SUMMARIZER_THINKING_LEVELS`** — `{ value, label }` array for interactive selectors.
-- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount }` stored in `~/.pi/agent/context-prune/settings.json`.
+- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode }` stored in `~/.pi/agent/context-prune/settings.json`.
 - **`SummarizerStats`** — cumulative token/cost stats: `{ totalInputTokens, totalOutputTokens, totalCost, callCount }`. Persisted via `pi.appendEntry(CUSTOM_TYPE_STATS, ...)`.
 - **`SummarizeResult`** — return type from summarizer: `{ summaryText, usage }` carrying both the markdown summary and LLM usage data.
 - **`SummaryMessageDetails`** — metadata attached to `context-prune-summary` custom messages.
@@ -85,7 +89,8 @@ Single source of truth for all interfaces and constants:
 
 ### `src/batch-capture.ts` — Turn capture and serialization
 - **`captureBatch(message, toolResults, turnIndex, timestamp)`** — converts raw `turn_end` event data into a typed `CapturedBatch`. Extracts `assistantText` from `TextContent` blocks and matches each `ToolCall` content block in the `AssistantMessage` with its corresponding `ToolResultMessage` by `toolCallId`. Falls back to `"(no result)"` if no match is found for a tool call.
-- **`captureUnindexedBatchesFromSession(branch, indexer, excludeToolNames)`** — scans a session branch for all unsummarized tool results and groups them into `CapturedBatch` objects. This allows the pruner to capture results from the current in-progress turn (before `turn_end` fires) when triggered by `context_prune` or `/pruner now`. **Important**: `getBranch()` returns `SessionEntry[]` (not `AgentMessage[]`). Each message entry is `{ type: "message", message: AgentMessage }`. The function unwraps `entry.message` before accessing `role`/`toolCallId`. Pi appends both the assistant message and individual tool results to the session as they arrive (not batched at `turn_end`), so mid-turn results ARE visible in the branch.
+- **`captureUnindexedBatchesFromSession(branch, indexer, excludeToolNames)`** — scans a session branch for all unsummarized tool results and groups them into `CapturedBatch` objects. Each batch is tagged with a `userTurnGroup` counter that increments on every `role: "user"` message encountered while walking the branch — all assistant turns between two consecutive user messages share the same `userTurnGroup`. This allows `groupBatchesByMode` to merge them later. **Important**: `getBranch()` returns `SessionEntry[]` (not `AgentMessage[]`). Each message entry is `{ type: "message", message: AgentMessage }`. The function unwraps `entry.message` before accessing `role`/`toolCallId`. Pi appends both the assistant message and individual tool results to the session as they arrive (not batched at `turn_end`), so mid-turn results ARE visible in the branch.
+- **`groupBatchesByMode(batches, mode)`** — applies the batching-mode grouping. `"turn"` returns batches unchanged (one summary per assistant turn). `"agent-message"` merges consecutive batches that share the same `userTurnGroup` into a single `CapturedBatch` (concat `toolCalls`, join `assistantText`, keep last `turnIndex`/`timestamp`). Batches without `userTurnGroup` (live `turn_end` path) are always passed through one-per-batch. Called in `flushPending` after frontier trimming and before `summarizeBatches`.
 - **`serializeBatchForSummarizer(batch)`** — renders a single `CapturedBatch` as plain text for the summarizer LLM. Includes `assistantText` as a header if present. Truncates individual result text at 2 000 chars to keep the summarizer prompt manageable.
 - **`serializeBatchesForSummarizer(batches)`** — renders multiple `CapturedBatch` objects into a single text block for batched summarization. Each batch is rendered as a `=== Turn N ===` section, separated by blank lines. Reuses `serializeBatchForSummarizer` for each batch's body.
 
@@ -148,25 +153,27 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 ### `src/commands.ts` — `/pruner` command + settings overlay + renderer
 - **`SettingsOverlay`** — a TUI `Container` subclass that wraps a `SettingsList` with a `DynamicBorder` + title. Forwards `handleInput` and `invalidate` to the inner list so keyboard navigation works inside the overlay.
 - **`pruneStatusText(config, stats?)`** — formats the footer widget string including mode label and optional stats suffix: e.g. `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003`.
-- **`SUBCOMMANDS`** — `{ value, label }` array for tab-completion and the interactive picker. Includes `settings`, `on`, `off`, `status`, `model`, `thinking`, `prune-on`, `stats`, `tree`, `now`, `help`.
-- **`HELP_TEXT`** — full explanation of all subcommands, mode guidance, and a note on prompt-cache impact.
+- **`SUBCOMMANDS`** — `{ value, label }` array for tab-completion and the interactive picker. Includes `settings`, `on`, `off`, `status`, `model`, `thinking`, `prune-on`, `batching`, `stats`, `tree`, `now`, `help`.
+- **`HELP_TEXT`** — full explanation of all subcommands, batching mode guidance, prune-on mode guidance, and a note on prompt-cache impact.
 - **`getArgumentCompletions(prefix)`** — filters `SUBCOMMANDS` by prefix for tab-completion.
 - **Bare `/pruner`** (no args) — calls `ctx.ui.select()` to show an interactive picker over `SUBCOMMANDS`.
-- **`/pruner settings`** — opens an interactive `SettingsOverlay` (via `ctx.ui.custom()` with `overlay: true`) containing a `SettingsList` with five items:
+- **`/pruner settings`** — opens an interactive `SettingsOverlay` (via `ctx.ui.custom()` with `overlay: true`) containing a `SettingsList` with six items:
   1. **Enabled** — toggle between `true` / `false`
   2. **Prune status line** — toggle the footer status widget and queued turn notifications on/off
   3. **Prune trigger** — cycle through all five `PruneOn` modes
   4. **Summarizer model** — shows current value; pressing Enter opens a searchable submenu listing `"default"` plus all models from `ctx.modelRegistry.getAvailable()`. Selecting a model saves immediately.
   5. **Summarizer thinking** — cycle through all `SummarizerThinking` levels.
+  6. **Batching mode** — cycle between `"turn"` and `"agent-message"`.
   All changes are persisted to `settings.json` on every toggle and the footer widget is updated when enabled.
 - **`/pruner on|off`** — enables/disables pruning, saves config, calls `syncToolActivation()`, updates footer widget.
-- **`/pruner status`** — shows enabled state, summarizer model, thinking level, prune trigger, status line visibility, and cumulative summarizer stats (calls, tokens, cost).
+- **`/pruner status`** — shows enabled state, summarizer model, thinking level, prune trigger, batching mode, status line visibility, and cumulative summarizer stats (calls, tokens, cost).
 - **`/pruner stats`** — shows detailed cumulative summarizer token/cost stats.
 - **`/pruner model [value]`** — gets or sets the summarizer model. Accepts `"provider/model-id"` or `"provider/model-id:thinking"` (colon-separated suffix sets both model and thinking level in one command).
 - **`/pruner thinking [value]`** — gets or sets the summarizer thinking level; bare form shows `ctx.ui.select()` picker over `SUMMARIZER_THINKING_LEVELS`.
 - **`/pruner prune-on [value]`** — gets or sets the trigger mode; bare form shows `ctx.ui.select()` picker over `PRUNE_ON_MODES`.
+- **`/pruner batching [value]`** — gets or sets the batching mode (`turn` or `agent-message`); bare form shows `ctx.ui.select()` picker over `BATCHING_MODES`.
 - **`/pruner tree`** — builds a `TreeNode[]` via `buildPruneTree()` and opens a `TreeBrowser` via `ctx.ui.custom()` so the user can browse pruned tool calls interactively.
-- **`/pruner now`** — calls `flushPending(ctx)` immediately; guards against pruning being disabled.
+- **`/pruner now`** — opens a `BorderedLoader` overlay (blocking the editor / input while in-flight) then calls `flushPending(ctx)`. Esc closes the overlay but does NOT cancel the LLM call. After the overlay closes, notifies with the flush result. Guards against pruning being disabled.
 - **`/pruner help`** — displays `HELP_TEXT` via `ctx.ui.notify`.
 - **`default` case** — directs unknown subcommands to run `/pruner help`.
 - **Message renderer** for `context-prune-summary` — renders summary messages in the TUI with a styled header (accent color) showing turn index and tool count; collapses to header-only when not expanded, shows full content when expanded.
@@ -195,3 +202,6 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 | Status widget includes stats suffix | Footer shows `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003` after summarizer calls, giving users visibility into pruner overhead |
 | Auth via `ctx.modelRegistry.getApiKeyAndHeaders()` | Explicit credential resolution for the summarizer LLM call, with error notification on failure |
 | `TreeBrowser` for `/pruner tree` | Gives users a visual, keyboard-navigable audit trail of what was pruned and how much space was saved, without leaving the Pi TUI |
+| `BorderedLoader` for `/pruner now` | The overlay captures TUI input while `flushPending` awaits the LLM call, preventing double-invocation and new model turns. Esc closes the overlay without cancelling the in-flight call. |
+| `userTurnGroup` field on `CapturedBatch` | Assigned in `captureUnindexedBatchesFromSession` by incrementing a counter at every user message — gives `groupBatchesByMode` a stable key to merge turns within the same conversation exchange without changing the live `turn_end` capture path. |
+| `batchingMode` is separate from `pruneOn` | `pruneOn` controls *when* to flush; `batchingMode` controls *how coarse* each summary is. Keeping them independent lets users mix e.g. `pruneOn: on-demand` with `batchingMode: agent-message` freely. |
