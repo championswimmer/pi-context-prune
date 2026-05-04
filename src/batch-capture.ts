@@ -75,12 +75,20 @@ export function captureUnindexedBatchesFromSession(
   }
 
   const batches: CapturedBatch[] = [];
+  // turnCounter increments for EVERY assistant message (not just prunable ones).
+  // This makes turnIndex stable across multiple prune cycles: pruning removes
+  // ToolResultMessages from the context event but leaves AssistantMessages in the
+  // session branch, so the count of all assistant messages never decreases and
+  // always matches Pi's own event.turnIndex numbering.
   let turnCounter = 0;
 
   for (const entry of branch) {
     if (entry.type !== "message") continue;
     const msg = entry.message;
     if (msg.role !== "assistant") continue;
+
+    // Stable turn index: count every assistant message regardless of pruning state
+    const currentTurnIndex = turnCounter++;
 
     const content = Array.isArray(msg.content) ? msg.content : [];
     const toolCallBlocks = content.filter((c: any) => c.type === "toolCall");
@@ -103,7 +111,7 @@ export function captureUnindexedBatchesFromSession(
       // without accidentally capturing later unresolved calls from the same
       // assistant message as "(no result)" placeholders.
       const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : (msg.timestamp ?? Date.now());
-      const batch = captureBatch(msg, results, turnCounter++, ts);
+      const batch = captureBatch(msg, results, currentTurnIndex, ts);
       batches.push({
         ...batch,
         toolCalls: batch.toolCalls.filter((tc) => readyIds.has(tc.toolCallId)),
