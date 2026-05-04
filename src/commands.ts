@@ -8,6 +8,8 @@ import {
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { saveConfig } from "./config.js";
 import { formatTokens, formatCost } from "./stats.js";
+import type { TokenAccountingMetrics } from "./tokens.js";
+import { formatTokenMetrics } from "./tokens.js";
 import { Container, Text, SettingsList, type SettingItem } from "@mariozechner/pi-tui";
 import { DynamicBorder, getSettingsListTheme } from "@mariozechner/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
@@ -202,7 +204,7 @@ export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
   flushPending: (ctx: ExtensionCommandContext) => Promise<
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+    | ({ ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number } & TokenAccountingMetrics)
     | { ok: false; reason: string; error?: string }
   >,
   syncToolActivation: () => void,
@@ -539,14 +541,14 @@ export function registerCommands(
 
           if (result.reason === "skipped-oversized") {
             ctx.ui.notify(
-              `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
+              `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars (${formatTokenMetrics(result)}); frontier advanced past this range`,
               "warning"
             );
             break;
           }
 
           ctx.ui.notify(
-            `pruner: pruned ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"} — summary ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars`,
+            `pruner: pruned ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"} — summary ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars (${formatTokenMetrics(result)})`,
             "info"
           );
           break;

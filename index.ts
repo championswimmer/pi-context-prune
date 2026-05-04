@@ -17,6 +17,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { loadConfig } from "./src/config.js";
 import { captureBatch, captureUnindexedBatchesFromSession } from "./src/batch-capture.js";
 import { summarizeBatches } from "./src/summarizer.js";
+import { countTextBlocksTokens, countTokens, computeSavings, formatTokenMetrics, type TokenAccountingMetrics } from "./src/tokens.js";
 import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
 import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminder.js";
@@ -56,7 +57,7 @@ export default function (pi: ExtensionAPI) {
   let isFlushing = false;
 
   type FlushResult =
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+    | ({ ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number } & TokenAccountingMetrics)
     | { ok: false; reason: "empty" | "already-flushing" | "summarizer-failed" | "stale-context" | "failed"; error?: string };
 
   type SessionAppender = {
@@ -183,12 +184,15 @@ export default function (pi: ExtensionAPI) {
     try {
       setPruneStatusWidget(ctx, currentConfig.value, "prune: summarizing…");
 
-      const rawCharCount = batches.reduce(
-        (sum, batch) => sum + batch.toolCalls.reduce((batchSum, tc) => batchSum + tc.resultText.length, 0),
-        0
-      );
+      const rawToolResults = batches.flatMap((batch) => batch.toolCalls.map((tc) => tc.resultText));
+      const rawCharCount = rawToolResults.reduce((sum, resultText) => sum + resultText.length, 0);
+      const rawTokenCount = countTextBlocksTokens(rawToolResults);
 
-      const buildFrontier = (outcome: PruneFrontier["outcome"], summaryCharCount: number): PruneFrontier => {
+      const buildFrontier = (
+        outcome: PruneFrontier["outcome"],
+        summaryCharCount: number,
+        tokenMetrics: TokenAccountingMetrics
+      ): PruneFrontier => {
         const lastBatch = batches[batches.length - 1];
         const lastToolCall = lastBatch.toolCalls[lastBatch.toolCalls.length - 1];
         return {
@@ -200,6 +204,10 @@ export default function (pi: ExtensionAPI) {
           attemptedToolCallCount: toolCallCount,
           rawCharCount,
           summaryCharCount,
+          rawTokenCount: tokenMetrics.rawTokenCount,
+          summaryTokenCount: tokenMetrics.summaryTokenCount,
+          tokensSaved: tokenMetrics.tokensSaved,
+          savingsRatio: tokenMetrics.savingsRatio,
           outcome,
         };
       };
@@ -214,10 +222,12 @@ export default function (pi: ExtensionAPI) {
       }
 
       const summaryCharCount = result.summaryText.length;
+      const tokenMetrics = computeSavings(rawTokenCount, countTokens(result.summaryText));
       const shouldSkipOversized = summaryCharCount > rawCharCount;
       const frontierSnapshot = buildFrontier(
         shouldSkipOversized ? "skipped-oversized" : "summarized",
-        summaryCharCount
+        summaryCharCount,
+        tokenMetrics
       );
       const details = {
         toolCallIds: batches.flatMap((b) => b.toolCalls.map((tc) => tc.toolCallId)),
@@ -285,7 +295,7 @@ export default function (pi: ExtensionAPI) {
       if (shouldSkipOversized) {
         safeNotify(
           ctx,
-          `pruner: skipped pruning ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} — summary was ${summaryCharCount} chars vs ${rawCharCount} raw chars; frontier advanced past this range`,
+          `pruner: skipped pruning ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} — summary was ${summaryCharCount} chars vs ${rawCharCount} raw chars (${formatTokenMetrics(tokenMetrics)}); frontier advanced past this range`,
           "warning"
         );
       }
@@ -296,6 +306,10 @@ export default function (pi: ExtensionAPI) {
         toolCallCount,
         rawCharCount,
         summaryCharCount,
+        rawTokenCount: tokenMetrics.rawTokenCount,
+        summaryTokenCount: tokenMetrics.summaryTokenCount,
+        tokensSaved: tokenMetrics.tokensSaved,
+        savingsRatio: tokenMetrics.savingsRatio,
       };
     } catch (err) {
       restoreBatches(batches);
