@@ -66,17 +66,18 @@ export function setPruneStatusWidget(
 // ── Subcommand list (for completions & interactive picker) ──────────────────
 
 const SUBCOMMANDS = [
-  { value: "settings", label: "settings — interactive settings overlay" },
-  { value: "on",       label: "on       — enable context pruning" },
-  { value: "off",      label: "off      — disable context pruning" },
-  { value: "status",  label: "status   — show status, model, thinking, prune trigger, and status line" },
-  { value: "model",   label: "model    — show or set the summarizer model" },
-  { value: "thinking", label: "thinking — show or set the summarizer thinking level" },
-  { value: "prune-on", label: "prune-on — show or set the trigger mode" },
-  { value: "stats",   label: "stats    — show cumulative summarizer token/cost stats" },
-  { value: "tree",    label: "tree     — browse pruned tool calls in a foldable tree" },
-  { value: "now",     label: "now      — flush pending tool calls immediately" },
-  { value: "help",    label: "help     — show this help" },
+  { value: "settings", label: "settings  — interactive settings overlay" },
+  { value: "on",       label: "on        — enable context pruning" },
+  { value: "off",      label: "off       — disable context pruning" },
+  { value: "status",  label: "status    — show status, model, thinking, prune trigger, and status line" },
+  { value: "model",   label: "model     — show or set the summarizer model" },
+  { value: "thinking", label: "thinking  — show or set the summarizer thinking level" },
+  { value: "prune-on", label: "prune-on  — show or set the trigger mode" },
+  { value: "batching", label: "batching  — show or set the batching mode (turn / agent-message)" },
+  { value: "stats",   label: "stats     — show cumulative summarizer token/cost stats" },
+  { value: "tree",    label: "tree      — browse pruned tool calls in a foldable tree" },
+  { value: "now",     label: "now       — flush pending tool calls immediately" },
+  { value: "help",    label: "help      — show this help" },
 ] as const;
 
 // ── Help text ───────────────────────────────────────────────────────────────
@@ -135,6 +136,17 @@ function pruneTriggerDescription(mode: ContextPruneConfig["pruneOn"]): string {
   return `When to summarize tool outputs. Current mode: ${pruneModeLabel(mode)} (${mode}) — ${pruneModeGuidance(mode)} Press Enter/Space to cycle through modes.`;
 }
 
+function batchingModeLabel(mode: ContextPruneConfig["batchingMode"]): string {
+  return BATCHING_MODES.find((m) => m.value === mode)?.label ?? mode;
+}
+
+function batchingModeDescription(mode: ContextPruneConfig["batchingMode"]): string {
+  if (mode === "turn") {
+    return "Per turn (default): one summary per assistant turn. Keeps summaries small and granular.";
+  }
+  return "Per agent message: merges all assistant turns between two user messages into one summary. Fewer, larger summaries per conversation exchange.";
+}
+
 function remindUnprunedCountDescription(config: ContextPruneConfig): string {
   const base = config.remindUnprunedCount ? "ON" : "OFF";
   if (config.pruneOn === "agentic-auto") {
@@ -157,7 +169,7 @@ Usage:
   /pruner settings                         Interactive settings overlay
   /pruner on                               Enable context pruning
   /pruner off                              Disable context pruning
-  /pruner status                           Show status, model, prune trigger, status line, and stats
+  /pruner status                           Show status, model, prune trigger, batching mode, and stats
   /pruner model                            Show the current summarizer model
   /pruner model <id>                       Set summarizer model (e.g. anthropic/claude-haiku-3-5)
   /pruner model <id>:<thinking>            Set summarizer model and thinking together (e.g. openai/gpt-5-mini:low)
@@ -169,9 +181,12 @@ Usage:
   /pruner prune-on on-demand               Only summarize when /pruner now runs
   /pruner prune-on agent-message           Summarize after the agent's final text reply (default; safest for cache stability)
   /pruner prune-on agentic-auto            LLM decides when to prune via context_prune tool
+  /pruner batching                         Show or interactively pick the batching granularity
+  /pruner batching turn                    One summary per assistant turn (default)
+  /pruner batching agent-message           One summary per user→final-agent-message span (merges all turns in a span)
   /pruner stats                            Show cumulative summarizer token/cost stats
   /pruner tree                             Browse pruned tool calls in a foldable tree (Ctrl-O opens selected summary)
-  /pruner now                              Flush pending tool calls immediately
+  /pruner now                              Flush pending tool calls immediately (shows blocking loader)
   /pruner help                             Show this help
 
 Agentic-auto reminder:
@@ -180,6 +195,11 @@ Agentic-auto reminder:
   LLM call telling the model how many unpruned tool calls have piled up. This
   helps the LLM decide when to call context_prune. Toggle via /pruner settings.
   This setting has no effect in any other prune-on mode.
+
+Batching mode:
+  - turn (default): each assistant turn that used tools gets its own summary block. Small, granular.
+  - agent-message: all assistant turns between two consecutive user messages are merged into one summary.
+    Use this when a single user request triggers many back-to-back tool rounds that belong together.
 
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
@@ -309,6 +329,13 @@ export function registerCommands(
               currentValue: String(config.remindUnprunedCount),
               description: remindUnprunedCountDescription(config),
             },
+            {
+              id: "batchingMode",
+              label: "Batching mode",
+              values: BATCHING_MODES.map((m) => m.value),
+              currentValue: config.batchingMode,
+              description: batchingModeDescription(config.batchingMode),
+            },
           ];
 
           let settingsList: SettingsList;
@@ -351,6 +378,12 @@ export function registerCommands(
               const pruneTriggerItem = items.find((item) => item.id === "pruneOn");
               if (pruneTriggerItem) {
                 pruneTriggerItem.description = pruneTriggerDescription(newConfig.pruneOn);
+              }
+            } else if (id === "batchingMode") {
+              newConfig.batchingMode = newValue as ContextPruneConfig["batchingMode"];
+              const batchingItem = items.find((item) => item.id === "batchingMode");
+              if (batchingItem) {
+                batchingItem.description = batchingModeDescription(newConfig.batchingMode);
               }
             }
             currentConfig.value = newConfig;
@@ -522,6 +555,30 @@ export function registerCommands(
           saveConfig(currentConfig.value);
           setPruneStatusWidget(ctx, currentConfig.value, getStats());
           syncToolActivation();
+          break;
+        }
+
+        // ── /pruner batching [value] ──
+        case "batching": {
+          const batchArg = subArgs[0];
+          if (!batchArg) {
+            const options = BATCHING_MODES.map((m) => `${m.value} — ${m.label}`);
+            const choice = await ctx.ui.select("pruner — choose batching granularity", options);
+            if (!choice) return;
+            const chosenValue = choice.split(/\s+/)[0] as ContextPruneConfig["batchingMode"];
+            currentConfig.value = { ...currentConfig.value, batchingMode: chosenValue };
+          } else {
+            if (!BATCHING_MODES.some((m) => m.value === batchArg)) {
+              ctx.ui.notify(
+                `Invalid batching mode: ${batchArg}. Use one of: ${BATCHING_MODES.map((m) => m.value).join(", ")}.`,
+                "warning",
+              );
+              return;
+            }
+            currentConfig.value = { ...currentConfig.value, batchingMode: batchArg as ContextPruneConfig["batchingMode"] };
+          }
+          saveConfig(currentConfig.value);
+          ctx.ui.notify(`Batching mode set to: ${batchingModeLabel(currentConfig.value.batchingMode)}`);
           break;
         }
 
