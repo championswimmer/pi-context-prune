@@ -2,6 +2,7 @@ import {
   type ContextPruneConfig,
   type SummarizerStats,
   PRUNE_ON_MODES,
+  BATCHING_MODES,
   STATUS_WIDGET_ID,
   SUMMARIZER_THINKING_LEVELS,
 } from "./types.js";
@@ -9,7 +10,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import { saveConfig } from "./config.js";
 import { formatTokens, formatCost } from "./stats.js";
 import { Container, Text, SettingsList, type SettingItem } from "@mariozechner/pi-tui";
-import { DynamicBorder, getSettingsListTheme } from "@mariozechner/pi-coding-agent";
+import { BorderedLoader, DynamicBorder, getSettingsListTheme } from "@mariozechner/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
@@ -530,7 +531,43 @@ export function registerCommands(
             ctx.ui.notify("Context pruning is disabled. Run /pruner on first.", "warning");
             return;
           }
-          const result = await flushPending(ctx);
+
+          // Show a blocking BorderedLoader overlay while the summarizer is running.
+          // The overlay captures input (the editor is hidden behind it) so the user
+          // cannot submit a new prompt or run a second /pruner now while pruning is
+          // in flight. Esc closes the overlay early but does NOT cancel the in-flight
+          // LLM call — the flush continues writing its result via sendMessage or
+          // appendCustomMessageEntry as normal.
+          type FlushResult = Awaited<ReturnType<typeof flushPending>>;
+          let flushResult: FlushResult | null = null;
+
+          await ctx.ui.custom<undefined>(
+            (tui, theme, _kb, done) => {
+              const loader = new BorderedLoader(tui, theme, "pruner: summarizing…");
+              // Esc: close overlay only — does NOT abort the LLM call
+              loader.onAbort = () => done(undefined);
+
+              flushPending(ctx)
+                .then((r) => {
+                  flushResult = r;
+                  done(undefined);
+                })
+                .catch(() => {
+                  done(undefined);
+                });
+
+              return loader;
+            },
+            { overlay: true },
+          );
+
+          if (!flushResult) {
+            // Esc was pressed before flushPending resolved — still running in bg
+            ctx.ui.notify("pruner: summarization is running in background", "info");
+            break;
+          }
+
+          const result = flushResult as FlushResult;
           if (!result.ok) {
             const suffix = "error" in result && result.error ? ` (${result.error})` : "";
             ctx.ui.notify(`pruner: nothing flushed — ${result.reason}${suffix}`, result.reason === "empty" ? "info" : "warning");
