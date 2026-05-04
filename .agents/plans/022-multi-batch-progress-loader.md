@@ -85,10 +85,10 @@ message that never changes.
 - [x] Import `MultiBatchLoaderOverlay` from `./multi-batch-loader`
 
 ### Phase 5 — `AGENTS.md`
-- [ ] Document `MultiBatchLoaderOverlay` in the Code Structure section
+- [x] Document `MultiBatchLoaderOverlay` in the Code Structure section
 - [ ] Update `src/types.ts` entry to mention `ProgressCallback` and `FlushOptions`
-- [ ] Update `index.ts` entry to mention `capturePendingBatches` helper
-- [ ] Update `src/commands.ts` entry to describe the new `/pruner now` UX
+- [x] Update `index.ts` entry to mention `capturePendingBatches` helper
+- [x] Update `src/commands.ts` entry to describe the new `/pruner now` UX
 
 ### Phase 6 — Validation
 - [ ] Switch `batchingMode` to `turn` so auto-flush doesn't steal the pending batch before `/pruner now`

@@ -38,13 +38,15 @@ pi-context-prune/
     ├── context-prune-tool.ts      # Register the context_prune tool for agentic-auto mode
     ├── tree-browser.ts            # TreeBrowser TUI component + buildPruneTree for /pruner tree
     ├── stats.ts                   # StatsAccumulator for cumulative summarizer token/cost tracking
+    ├── multi-batch-loader.ts      # MultiBatchLoaderOverlay TUI component for /pruner now progress display
     └── commands.ts                # /pruner command + interactive settings overlay + summary message renderer
 ```
 
 ### `index.ts` — Extension entry point
 Wires all modules together and registers Pi event handlers:
 - **`pendingBatches: CapturedBatch[]`** — queue of captured batches not yet summarized; drained by `flushPending`.
-- **`flushPending(ctx, options?)`** — summarizes + indexes all unsummarized batches in a **single LLM call**. It first scans the session branch via `captureUnindexedBatchesFromSession` to grab everything that hasn't been pruned yet (including results from the current turn-in-progress). It then clears `pendingBatches` (which serves as a trigger/cache) and proceeds with summarization. Accepts `{ delivery?: "runtime" | "session" }`: `"runtime"` uses `pi.sendMessage(..., { deliverAs: "steer" })` (default, used during an active agent loop); `"session"` writes directly via `sessionManager.appendCustomMessageEntry` (used for `every-turn` and `agent-message` modes where Pi may be shutting down by the time the summarizer returns). Sets status to "prune: summarizing…" while working, then restores the status widget with stats. Returns a typed `FlushResult`.
+- **`capturePendingBatches(ctx)`** — extracted helper that runs the capture + trim + group steps from `flushPending` without any LLM work. Exposed to `commands.ts` via `registerCommands` so `/pruner now` can preview the pending queue and know the batch count before opening the `MultiBatchLoaderOverlay`.
+- **`flushPending(ctx, options?)`** — summarizes + indexes all unsummarized batches in a **single LLM call** (parallel) by default, or sequentially (one call per batch) when `options.onProgress` is provided. Accepts `FlushOptions`: `{ delivery?, onProgress?, previewedBatches? }`. When `previewedBatches` is set the internal capture step is skipped (avoids double-capture from `/pruner now`). Sets status to "prune: summarizing…" while working, then restores the status widget with stats. Returns a typed `FlushResult`.
 
 - **`syncToolActivation()`** — activates or deactivates the `context_prune` tool in the Pi active-tools list based on whether `enabled && pruneOn === "agentic-auto"`. Uses `pi.getActiveTools()` / `pi.setActiveTools()` (ExtensionAPI, not ExtensionContext).
 - **`session_start`** — loads config from `~/.pi/agent/context-prune/settings.json`, rebuilds the in-memory index and stats accumulator, clears `pendingBatches`, updates the footer status widget, calls `syncToolActivation()`, and notifies the user of the loaded state.
@@ -78,6 +80,8 @@ Single source of truth for all interfaces and constants:
 - **`SUMMARIZER_THINKING_LEVELS`** — `{ value, label }` array for interactive selectors.
 - **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode }` stored in `~/.pi/agent/context-prune/settings.json`.
 - **`SummarizerStats`** — cumulative token/cost stats: `{ totalInputTokens, totalOutputTokens, totalCost, callCount }`. Persisted via `pi.appendEntry(CUSTOM_TYPE_STATS, ...)`.
+- **`ProgressCallback`** — `(index, total, batch, stage: "start" | "done" | "skipped") => void` — progress callback fired by `flushPending` when processing batches sequentially. Only used when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
+- **`FlushOptions`** — `{ delivery?, onProgress?, previewedBatches? }` — typed options bag for `flushPending`. `onProgress` triggers sequential processing; `previewedBatches` skips the internal capture step to avoid double-capture when the caller previewed the queue before opening the overlay.
 - **`SummarizeResult`** — return type from summarizer: `{ summaryText, usage }` carrying both the markdown summary and LLM usage data.
 - **`SummaryMessageDetails`** — metadata attached to `context-prune-summary` custom messages.
 - Constants: `CUSTOM_TYPE_SUMMARY`, `CUSTOM_TYPE_INDEX`, `CUSTOM_TYPE_STATS`, `STATUS_WIDGET_ID`, `DEFAULT_CONFIG`, `CONTEXT_PRUNE_TOOL_NAME`, `AGENTIC_AUTO_SYSTEM_PROMPT`.
@@ -139,6 +143,17 @@ Provides a foldable interactive tree view of pruned tool calls, opened by `/prun
   - Renders via `boxLines()` (a local box-drawing helper that draws `┌─┐` borders with a title).
   - The overlay uses the `Markdown` TUI renderer with `getMarkdownTheme()` for styled summary display.
 
+### `src/multi-batch-loader.ts` — `MultiBatchLoaderOverlay` TUI component
+Provides a multi-row progress overlay for `/pruner now` that shows one animated spinner per pending
+batch and checks each row off as the corresponding LLM summarization call completes.
+- **`MultiBatchLoaderOverlay extends Container`** — constructor takes `(tui, theme, batches: CapturedBatch[])`.
+  Builds one `DynamicBorder` top + one `Loader` per batch + one `DynamicBorder` bottom.
+  Each `Loader` label shows `Batch N/M (K tool calls) summarizing…`.
+- **`markRunning(index)`** — no-op (rows start spinning by default); kept for call-site symmetry.
+- **`markDone(index)`** — calls `loader.stop()` + `loader.setMessage("✓ Batch N/M done (K tool calls)")` to freeze the spinner and show a checkmark.
+- **`markSkipped(index)`** — calls `loader.stop()` + `loader.setMessage("⚠ Batch N/M skipped")` when the LLM call returned null.
+- **`onAbort` setter + `handleInput`** — forwards `Esc`/`q` to the abort callback so the overlay can be dismissed without cancelling in-flight LLM calls.
+
 ### `src/stats.ts` — `StatsAccumulator` class + formatting helpers
 Accumulates cumulative token/cost stats for summarizer LLM calls and persists them to the session:
 - **`add(usage)`** — accumulates one LLM call's usage (input tokens, output tokens, total cost).
@@ -173,7 +188,7 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 - **`/pruner prune-on [value]`** — gets or sets the trigger mode; bare form shows `ctx.ui.select()` picker over `PRUNE_ON_MODES`.
 - **`/pruner batching [value]`** — gets or sets the batching mode (`turn` or `agent-message`); bare form shows `ctx.ui.select()` picker over `BATCHING_MODES`.
 - **`/pruner tree`** — builds a `TreeNode[]` via `buildPruneTree()` and opens a `TreeBrowser` via `ctx.ui.custom()` so the user can browse pruned tool calls interactively.
-- **`/pruner now`** — opens a `BorderedLoader` overlay (blocking the editor / input while in-flight) then calls `flushPending(ctx)`. Esc closes the overlay but does NOT cancel the LLM call. After the overlay closes, notifies with the flush result. Guards against pruning being disabled.
+- **`/pruner now`** — previews the pending batch queue via `capturePendingBatches(ctx)` before opening the overlay (exits early with a notification if nothing is pending). Opens a `MultiBatchLoaderOverlay` (via `ctx.ui.custom()` with `overlay: true`) showing one animated spinner row per batch. Passes `onProgress` to `flushPending` so each row is checked off as its individual LLM call completes. Esc closes the overlay but does NOT cancel in-flight LLM calls.
 - **`/pruner help`** — displays `HELP_TEXT` via `ctx.ui.notify`.
 - **`default` case** — directs unknown subcommands to run `/pruner help`.
 - **Message renderer** for `context-prune-summary` — renders summary messages in the TUI with a styled header (accent color) showing turn index and tool count; collapses to header-only when not expanded, shows full content when expanded.
@@ -195,7 +210,8 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 | `message_end` instead of `turn_end` for `agent-message` flush | `message_end` fires reliably at the final text-only response and before session teardown, giving time to capture the sessionManager before awaiting the summarizer LLM call. `turn_end` in print mode fires too late. |
 | `agent_end` as status update only | Avoids starting async LLM work after Pi may have disposed the session. If batches remain, the user sees a "N pending" status and can `/pruner now` next session. |
 | `context_prune` tool always registered, conditionally activated | Keeps Pi's tool registry consistent; `syncToolActivation()` adds/removes it from the active list on every config change without re-registering. |
-| `SettingsOverlay` wrapper | Required because `Container` alone doesn't forward keyboard input — the wrapper delegates `handleInput`/`invalidate` to the inner `SettingsList` |
+| `MultiBatchLoaderOverlay` for `/pruner now` | Shows per-batch spinner rows that check off as each LLM call completes — gives concrete progress feedback instead of a single static "summarizing…" message. Sequential LLM calls are used only for this user-triggered path; auto-flush paths keep the parallel single-call approach for efficiency |
+| `capturePendingBatches` extracted from `flushPending` | Lets `/pruner now` preview the queue before opening the overlay so it knows how many rows to pre-build. Avoids double-capture via `previewedBatches` option on `flushPending` |
 | `context` handler returns `undefined` when no pruning occurs | Avoids unnecessary message-list reconstruction when nothing was filtered |
 | Stats persistence via `CUSTOM_TYPE_STATS` | Stats are snapshots persisted alongside index entries; on `session_start` / `session_tree`, the last snapshot is applied, matching the same lifecycle as the indexer |
 | `SummarizeResult` return type | Summarizer functions return `{ summaryText, usage }` so callers can accumulate token/cost data without side effects in the summarizer module |
