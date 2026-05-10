@@ -118,6 +118,8 @@ export type BatchingMode = "turn" | "agent-message";
 export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 /** Choices for the summarizer thinking setting (used by commands and settings overlay) */
+export const MIN_RAW_CHARS_TO_PRUNE_PRESETS = [0, 700, 1000] as const;
+
 export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: string }[] = [
   { value: "default", label: "Default" },
   { value: "off", label: "Off" },
@@ -160,6 +162,11 @@ export interface ContextPruneConfig {
   /** When to trigger summarization and pruning */
   pruneOn: PruneOn;
   /**
+   * Minimum raw tool-result character count required before a batch is even
+   * considered for summarization. 0 disables this pre-summarization guard.
+   */
+  minRawCharsToPrune: number;
+  /**
    * Whether to inject a small ephemeral reminder before each LLM call
    * telling the model how many unpruned tool-call results have piled up.
    * Only honored when `enabled && pruneOn === "agentic-auto"`. In all other
@@ -182,6 +189,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   summarizerModel: "default",
   summarizerThinking: "default",
   pruneOn: "agent-message",
+  minRawCharsToPrune: 700,
   remindUnprunedCount: true,
   batchingMode: "turn",
 };
@@ -284,7 +292,7 @@ export interface SummarizerStats {
 }
 
 /** Outcome of the most recent completed prune attempt. */
-export type PruneFrontierOutcome = "summarized" | "skipped-oversized";
+export type PruneFrontierOutcome = "summarized" | "skipped-oversized" | "skipped-too-small" | "skipped";
 
 /**
  * Snapshot of the last successfully completed prune attempt boundary.
