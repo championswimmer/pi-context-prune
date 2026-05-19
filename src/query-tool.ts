@@ -19,7 +19,7 @@ export function registerQueryTool(pi: ExtensionAPI, indexer: ToolCallIndexer): v
       }),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId: string, params: any, _signal: AbortSignal, _onUpdate: any, _ctx: any) {
       const foundRecords: Record<string, any> = {};
       const blocks: string[] = [];
 

@@ -13,7 +13,7 @@
  * Usage:  pi -e .
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { compact, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { loadConfig } from "./src/config.js";
 import { captureBatch, captureUnindexedBatchesFromSession, groupBatchesByMode } from "./src/batch-capture.js";
 import { summarizeBatch, summarizeBatches } from "./src/summarizer.js";
@@ -36,6 +36,7 @@ import {
 import { StatsAccumulator } from "./src/stats.js";
 import { registerContextPruneTool } from "./src/context-prune-tool.js";
 import { PruneFrontierTracker } from "./src/frontier.js";
+import { mergeCompactSanitizeStats, sanitizeMessagesForCompact } from "./src/compact-sanitizer.js";
 
 export default function (pi: ExtensionAPI) {
   // Shared mutable config reference — updated by /pruner commands
@@ -421,6 +422,76 @@ export default function (pi: ExtensionAPI) {
     frontier.reconstructFromSession(ctx);
     // Pending batches belong to the old branch — discard them
     pendingBatches.length = 0;
+  });
+
+  // ── session_before_compact: keep Pi /compact from re-sending pruned raw outputs ──
+  pi.on("session_before_compact", async (event, ctx) => {
+    // Native Pi compaction is built from the raw session branch, so it does not see
+    // this extension's normal context-event pruning. If we have indexed tool calls,
+    // compact a sanitized view that keeps context-prune-summary messages but drops
+    // the already-summarized raw tool results and large tool-call arguments.
+    if (indexer.getIndex().size === 0) return undefined;
+
+    const summarized = sanitizeMessagesForCompact(event.preparation.messagesToSummarize, indexer);
+    const turnPrefix = sanitizeMessagesForCompact(event.preparation.turnPrefixMessages, indexer);
+    const stats = mergeCompactSanitizeStats(summarized.stats, turnPrefix.stats);
+
+    if (!stats.changed) return undefined;
+
+    const model = ctx.model;
+    if (!model) {
+      safeNotify(ctx, "pruner: cancelled compact because no active model was available for sanitized compaction", "error");
+      return { cancel: true };
+    }
+
+    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+    if (!auth.ok) {
+      const authMessage = "error" in auth ? auth.error : "authentication failed";
+      safeNotify(ctx, `pruner: cancelled compact because sanitized compaction auth failed: ${authMessage}`, "error");
+      return { cancel: true };
+    }
+
+    try {
+      safeNotify(
+        ctx,
+        `pruner: compact is using sanitized history (dropped ${stats.droppedToolResults} pruned tool results, replaced ${stats.replacedToolCalls} tool calls)`,
+        "info"
+      );
+
+      const result = await compact(
+        {
+          ...event.preparation,
+          messagesToSummarize: summarized.messages as any,
+          turnPrefixMessages: turnPrefix.messages as any,
+        },
+        model,
+        auth.apiKey,
+        auth.headers,
+        event.customInstructions,
+        event.signal
+      );
+
+      return {
+        compaction: {
+          ...result,
+          details: {
+            ...(result.details as any),
+            contextPrune: {
+              sanitized: true,
+              droppedToolResults: stats.droppedToolResults,
+              replacedToolCalls: stats.replacedToolCalls,
+              summaryMessagesSeen: stats.summaryMessagesSeen,
+              beforeChars: stats.beforeChars,
+              afterChars: stats.afterChars,
+            },
+          },
+        },
+      };
+    } catch (err) {
+      if (event.signal.aborted) return { cancel: true };
+      safeNotify(ctx, `pruner: sanitized compaction failed: ${errorMessage(err)}`, "error");
+      throw err;
+    }
   });
 
   // ── turn_end: capture batch, flush immediately or queue ──────────────────
