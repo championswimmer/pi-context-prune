@@ -28,7 +28,7 @@ pi-context-prune/
 ├── package.json                   # Pi package manifest; declares extension at ./index.ts
 └── src/
     ├── types.ts                   # Shared types, constants, and interfaces (including PruneOn modes)
-    ├── config.ts                  # Load/save ~/.pi/agent/context-prune/settings.json
+    ├── config.ts                  # Load/save <agent-dir>/context-prune/settings.json (honors PI_CODING_AGENT_DIR)
     ├── batch-capture.ts           # Capture turn results from events or session branch
     ├── summarizer.ts              # LLM call that summarizes a CapturedBatch to markdown
     ├── indexer.ts                 # Runtime Map<toolCallId, ToolCallRecord> + session persistence
@@ -49,7 +49,7 @@ Wires all modules together and registers Pi event handlers:
 - **`flushPending(ctx, options?)`** — summarizes + indexes all unsummarized batches in parallel by default, or sequentially (one call per batch) when `options.onProgress` is provided. Accepts `FlushOptions`: `{ delivery?, onProgress?, onBatchTextProgress?, previewedBatches? }`. When `previewedBatches` is set the internal capture step is skipped (avoids double-capture from `/pruner now`). While summarization is running, `onBatchTextProgress` receives the streamed summary character count for the active batch so callers can surface live progress in richer UIs (the `/pruner now` overlay and `context_prune` tool updates), while the footer itself stays at the simpler `prune: summarizing…` state. Returns a typed `FlushResult`.
 
 - **`syncToolActivation()`** — activates or deactivates the `context_prune` tool in the Pi active-tools list based on whether `enabled && pruneOn === "agentic-auto"`. Uses `pi.getActiveTools()` / `pi.setActiveTools()` (ExtensionAPI, not ExtensionContext).
-- **`session_start`** — loads config from `~/.pi/agent/context-prune/settings.json`, rebuilds the in-memory index and stats accumulator, clears `pendingBatches`, updates the footer status widget, calls `syncToolActivation()`, and notifies the user of the loaded state.
+- **`session_start`** — loads config from `<agent-dir>/context-prune/settings.json` (where `<agent-dir>` honors `PI_CODING_AGENT_DIR`), rebuilds the in-memory index and stats accumulator, clears `pendingBatches`, updates the footer status widget, calls `syncToolActivation()`, and notifies the user of the loaded state.
 - **`session_tree`** — rebuilds the index and stats accumulator after branch navigation (pending batches and stats belong to the current branch).
 - **`turn_end`** — captures the batch (filtering out any `context_prune` tool call to avoid re-queuing agentic-auto housekeeping), pushes to `pendingBatches`. Behavior depends on `pruneOn` mode:
   - `every-turn`: flushes immediately with `delivery: "session"`.
@@ -78,7 +78,7 @@ Single source of truth for all interfaces and constants:
 - **`PRUNE_ON_MODES`** — `{ value, label }` array for interactive selectors.
 - **`BATCHING_MODES`** — `{ value, label }` array for interactive selectors.
 - **`SUMMARIZER_THINKING_LEVELS`** — `{ value, label }` array for interactive selectors.
-- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode }` stored in `~/.pi/agent/context-prune/settings.json`.
+- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode }` stored in `<agent-dir>/context-prune/settings.json` (per-agent-dir; honors `PI_CODING_AGENT_DIR`).
 - **`SummarizerStats`** — cumulative token/cost stats: `{ totalInputTokens, totalOutputTokens, totalCost, callCount }`. Persisted via `pi.appendEntry(CUSTOM_TYPE_STATS, ...)`.
 - **`ProgressCallback`** — `(index, total, batch, stage: "start" | "done" | "skipped") => void` — progress callback fired by `flushPending` when processing batches sequentially. Only used when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
 - **`BatchTextProgressCallback`** — `(index, total, batch, receivedChars) => void` — live callback fired while the summarizer streams text for the active batch in `/pruner now`.
@@ -90,7 +90,7 @@ Single source of truth for all interfaces and constants:
 - Constants: `CUSTOM_TYPE_SUMMARY`, `CUSTOM_TYPE_INDEX`, `CUSTOM_TYPE_STATS`, `STATUS_WIDGET_ID`, `DEFAULT_CONFIG`, `CONTEXT_PRUNE_TOOL_NAME`, `AGENTIC_AUTO_SYSTEM_PROMPT`.
 
 ### `src/config.ts` — Config persistence
-- **`SETTINGS_PATH`** — constant resolving to `~/.pi/agent/context-prune/settings.json` (global, project-independent).
+- **`SETTINGS_PATH`** — constant resolving to `<agent-dir>/context-prune/settings.json`. `<agent-dir>` comes from pi's `getAgentDir()` (`@mariozechner/pi-coding-agent`): `$PI_CODING_AGENT_DIR` if set (tilde-expanded), else `~/.pi/agent`. Project-independent but scoped per agent-dir so each pi preset has its own settings (including its own `summarizerModel`).
 - **`loadConfig()`** — reads `SETTINGS_PATH`, parses JSON, merges with `DEFAULT_CONFIG`. Returns defaults on any read/parse error.
 - **`saveConfig(config)`** — creates the directory if needed (`mkdir recursive`) then writes the full config as the file root (no key wrapping).
 
@@ -209,7 +209,7 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 | `pi.appendEntry` for persistence | Session custom entries survive restarts and branch navigation; index is rebuilt on `session_start` / `session_tree` |
 | `summarizerModel: "default"` | Reuses the active model's credentials via `ctx.modelRegistry.getApiKeyAndHeaders()` — no hidden side-channel or extra config needed |
 | `summarizerThinking` setting | Lets users trade summarizer cost/latency for quality; `"default"` preserves old behavior (no explicit reasoning option sent) |
-| Config in `~/.pi/agent/context-prune/settings.json` | Extension owns its own file — no risk of clobbering other Pi settings, and config persists across all projects |
+| Config in `<agent-dir>/context-prune/settings.json` (agent-dir honors `PI_CODING_AGENT_DIR`) | Extension owns its own file — no risk of clobbering other Pi settings; config persists across all projects within an agent-dir, and each pi preset directory gets its own config (different summarizer model per preset) |
 | Five `pruneOn` trigger modes | `every-turn` (immediate), `on-context-tag` (aligned with save-points), `on-demand` (manual), `agent-message` (batch until final text response), `agentic-auto` (LLM decides via `context_prune` tool) — lets users trade immediacy for batch efficiency |
 | `pendingBatches` queue + `flushPending` | Decouples capture (always at `turn_end`) from summarization (mode-dependent). `flushPending` drains all pending batches into a **single** `summarizeBatches` LLM call, reducing round-trips from N to 1. |
 | `message_end` instead of `turn_end` for `agent-message` flush | `message_end` fires reliably at the final text-only response and before session teardown, giving time to capture the sessionManager before awaiting the summarizer LLM call. `turn_end` in print mode fires too late. |

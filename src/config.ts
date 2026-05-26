@@ -1,11 +1,16 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import type { ContextPruneConfig, PruneOn, SummarizerThinking } from "./types.js";
 import { DEFAULT_CONFIG, PRUNE_ON_MODES, SUMMARIZER_THINKING_LEVELS } from "./types.js";
 
-/** Path to the extension's own settings file, independent of any project. */
-export const SETTINGS_PATH = join(homedir(), ".pi", "agent", "context-prune", "settings.json");
+/**
+ * Path to the extension's own settings file, independent of any project.
+ * Resolved against pi's agent directory so it honors `PI_CODING_AGENT_DIR`
+ * (defaults to `~/.pi/agent`). Each pi preset directory therefore gets its
+ * own context-prune config — including its own summarizer model.
+ */
+export const SETTINGS_PATH = join(getAgentDir(), "context-prune", "settings.json");
 
 function isPruneOn(value: unknown): value is PruneOn {
   return typeof value === "string" && PRUNE_ON_MODES.some((mode) => mode.value === value);
@@ -15,7 +20,7 @@ function isSummarizerThinking(value: unknown): value is SummarizerThinking {
   return typeof value === "string" && SUMMARIZER_THINKING_LEVELS.some((level) => level.value === value);
 }
 
-/** Reads ~/.pi/agent/context-prune/settings.json and returns the config (or defaults). */
+/** Reads `<agent-dir>/context-prune/settings.json` and returns the config (or defaults). */
 export async function loadConfig(): Promise<ContextPruneConfig> {
   try {
     const raw = await readFile(SETTINGS_PATH, "utf-8");
@@ -42,7 +47,7 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
   }
 }
 
-/** Writes the full config to ~/.pi/agent/context-prune/settings.json. */
+/** Writes the full config to `<agent-dir>/context-prune/settings.json`. */
 export async function saveConfig(config: ContextPruneConfig): Promise<void> {
   await mkdir(dirname(SETTINGS_PATH), { recursive: true });
   await writeFile(SETTINGS_PATH, JSON.stringify(config, null, 2));

@@ -158,7 +158,7 @@ The extension registers the `/pruner` command:
 4. **Summarizer model** — press Enter to open a searchable submenu listing `"default"` plus all available models
 5. **Summarizer thinking** — cycle through the thinking/reasoning level used for summarizer calls
 
-All changes are saved immediately to `~/.pi/agent/context-prune/settings.json` and reflected in the footer status widget when it is enabled.
+All changes are saved immediately to `<agent-dir>/context-prune/settings.json` and reflected in the footer status widget when it is enabled. `<agent-dir>` is whatever pi resolves for the current session — `$PI_CODING_AGENT_DIR` if set (with tilde expansion), otherwise `~/.pi/agent`. Each preset directory therefore gets its own settings file, including its own summarizer model.
 
 ## Tools
 
@@ -187,7 +187,7 @@ The tool is guided by a system prompt that instructs the model to use it after c
 
 ## Configuration
 
-Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-independent):
+Config is stored in `<agent-dir>/context-prune/settings.json` (project-independent, but scoped to the active pi agent directory — `$PI_CODING_AGENT_DIR` or `~/.pi/agent`):
 
 ```json
 {
@@ -244,7 +244,7 @@ Set it with:
 /pruner settings
 ```
 
-Or directly in `~/.pi/agent/context-prune/settings.json`:
+Or directly in `<agent-dir>/context-prune/settings.json`:
 
 ```json
 {
@@ -259,7 +259,7 @@ Or directly in `~/.pi/agent/context-prune/settings.json`:
 index.ts                    — entry point, wires events + modules
 src/
   types.ts                  — shared types, constants, PruneOn modes
-  config.ts                 — load/save ~/.pi/agent/context-prune/settings.json
+  config.ts                 — load/save <agent-dir>/context-prune/settings.json (honors PI_CODING_AGENT_DIR)
   batch-capture.ts          — serialize turn_end event → CapturedBatch
   summarizer.ts             — resolve model, call LLM, build summary text
   indexer.ts                — Map<toolCallId, ToolCallRecord> + session persistence
@@ -276,7 +276,7 @@ src/
 
 ```
 session_start
-  └─► loadConfig()              read ~/.pi/agent/context-prune/settings.json
+  └─► loadConfig()              read <agent-dir>/context-prune/settings.json
   └─► indexer.reconstruct()     rebuild Map from session branch entries
   └─► statsAccum.reconstruct()  rebuild stats from session branch entries
   └─► frontier.reconstruct()    rebuild last prune-attempt boundary from session entries
@@ -322,7 +322,7 @@ before_agent_start (agentic-auto mode)
 
 ### Session persistence
 
-- **Config** lives in `~/.pi/agent/context-prune/settings.json` — the extension's own file, independent of Pi's project settings
+- **Config** lives in `<agent-dir>/context-prune/settings.json` — the extension's own file, independent of Pi's project settings. `<agent-dir>` resolves through pi's `getAgentDir()` so it honors `PI_CODING_AGENT_DIR` (default `~/.pi/agent`)
 - **Index** is persisted via `pi.appendEntry("context-prune-index", { toolCalls })` — one entry per summarized batch, NOT in LLM context
 - **Prune frontier** is persisted via `pi.appendEntry("context-prune-frontier", ...)` — it records the last attempted prune boundary even when an oversized summary is rejected
 - **Summaries** are injected as `custom_message` entries with `customType: "context-prune-summary"` — these ARE in LLM context (replacing the raw outputs only when pruning is accepted). Their visible text uses short refs, while the `details.toolCallRefs` metadata keeps the full `toolCallId` mapping for later recovery.

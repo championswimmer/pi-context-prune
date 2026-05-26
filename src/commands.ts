@@ -219,7 +219,7 @@ Related:
   - pi-context extension (provides context_tag): https://github.com/ttttmr/pi-context
   - Anthropic prompt caching docs: https://docs.claude.com/en/docs/build-with-claude/prompt-caching
 
-Settings are saved to ~/.pi/agent/context-prune/settings.json`;
+Settings are saved to <agent-dir>/context-prune/settings.json (where <agent-dir> is $PI_CODING_AGENT_DIR or ~/.pi/agent).`;
 
 // ── Pruner progress widget ────────────────────────────────────────────────────
 

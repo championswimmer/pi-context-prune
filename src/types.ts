@@ -143,7 +143,7 @@ export const PRUNE_ON_MODES: { value: PruneOn; label: string }[] = [
   { value: "agentic-auto", label: "Agentic auto" },
 ];
 
-/** Extension config stored in ~/.pi/agent/context-prune/settings.json */
+/** Extension config stored in `<agent-dir>/context-prune/settings.json` (agent-dir honors `PI_CODING_AGENT_DIR`). */
 export interface ContextPruneConfig {
   /** Whether to prune raw tool outputs from future LLM context */
   enabled: boolean;
