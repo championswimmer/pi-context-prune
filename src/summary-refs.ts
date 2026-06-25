@@ -61,7 +61,7 @@ export function formatSummaryToolCallRefs(refs: SummaryToolCallRef[]): string {
 }
 
 export function wrapSummaryForContext(summaryText: string): string {
-  const trimmed = summaryText.trimStart();
+  const trimmed = summaryText.trim();
   if (trimmed.startsWith(SUMMARY_CONTEXT_OPEN)) {
     return trimmed;
   }
@@ -81,7 +81,7 @@ export function unwrapSummaryForDisplay(content: string): string {
   const lines = inner.split(/\r?\n/);
   const noticePrefix = lines.slice(0, SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n");
   const separatorIndex = SUMMARY_CONTEXT_NOTICE_LINES.length;
-  if (noticePrefix === SUMMARY_CONTEXT_NOTICE && lines[separatorIndex] === "") {
+  if (lines.length > separatorIndex && noticePrefix === SUMMARY_CONTEXT_NOTICE && lines[separatorIndex] === "") {
     inner = lines.slice(separatorIndex + 1).join("\n").trim();
   }
   return inner;
