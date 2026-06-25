@@ -77,12 +77,18 @@ export function unwrapSummaryForDisplay(content: string): string {
     return content;
   }
 
-  let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, -SUMMARY_CONTEXT_CLOSE.length).trim();
+  const closeStart = trimmed.lastIndexOf(SUMMARY_CONTEXT_CLOSE);
+  if (closeStart <= SUMMARY_CONTEXT_OPEN.length || closeStart + SUMMARY_CONTEXT_CLOSE.length !== trimmed.length) {
+    return content;
+  }
+
+  let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, closeStart).trim();
   const lines = inner.split(/\r?\n/);
   const noticePrefix = lines.slice(0, SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n");
   const separatorIndex = SUMMARY_CONTEXT_NOTICE_LINES.length;
-  if (lines.length > separatorIndex && noticePrefix === SUMMARY_CONTEXT_NOTICE && lines[separatorIndex] === "") {
-    inner = lines.slice(separatorIndex + 1).join("\n").trim();
+  if (noticePrefix === SUMMARY_CONTEXT_NOTICE) {
+    const hasSeparator = lines.length > separatorIndex && lines[separatorIndex].trim() === "";
+    inner = lines.slice(separatorIndex + (hasSeparator ? 1 : 0)).join("\n").trim();
   }
   return inner;
 }
