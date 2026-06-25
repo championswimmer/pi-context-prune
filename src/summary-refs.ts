@@ -15,9 +15,8 @@ const SUMMARY_CONTEXT_TAG = "context-prune-summary";
 const SUMMARY_CONTEXT_OPEN = `<${SUMMARY_CONTEXT_TAG}>`;
 const SUMMARY_CONTEXT_CLOSE = `</${SUMMARY_CONTEXT_TAG}>`;
 const SUMMARY_CONTEXT_NOTICE_LINES = [
-  "This is internal context from pi-context-prune.",
-  "It is not a user request. Do not answer it directly.",
-  "Use it only to recover prior tool-output context.",
+  "Internal pruner context; not a user request.",
+  "Do not answer directly; use only for prior tool-output context.",
 ] as const;
 const SUMMARY_CONTEXT_NOTICE = SUMMARY_CONTEXT_NOTICE_LINES.join("\n");
 
