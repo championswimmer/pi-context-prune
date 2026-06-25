@@ -78,17 +78,17 @@ export function unwrapSummaryForDisplay(content: string): string {
   }
 
   const closeStart = trimmed.lastIndexOf(SUMMARY_CONTEXT_CLOSE);
-  if (closeStart <= SUMMARY_CONTEXT_OPEN.length || closeStart + SUMMARY_CONTEXT_CLOSE.length !== trimmed.length) {
+  if (closeStart <= SUMMARY_CONTEXT_OPEN.length) {
     return content;
   }
 
   let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, closeStart).trim();
   const lines = inner.split(/\r?\n/);
   const noticePrefix = lines.slice(0, SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n");
-  const separatorIndex = SUMMARY_CONTEXT_NOTICE_LINES.length;
+  const blankLineIndex = SUMMARY_CONTEXT_NOTICE_LINES.length;
   if (noticePrefix === SUMMARY_CONTEXT_NOTICE) {
-    const hasSeparator = lines.length > separatorIndex && lines[separatorIndex].trim() === "";
-    inner = lines.slice(separatorIndex + (hasSeparator ? 1 : 0)).join("\n").trim();
+    const hasSeparator = lines.length > blankLineIndex && lines[blankLineIndex].trim() === "";
+    inner = lines.slice(blankLineIndex + (hasSeparator ? 1 : 0)).join("\n").trim();
   }
   return inner;
 }
