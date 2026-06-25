@@ -13,7 +13,7 @@ steps:
   - phase: validation
     steps:
       - "- [x] step 1: run targeted repository validation after the change"
-      - "- [ ] step 2: review the final diff and reply on the PR comment"
+      - "- [x] step 2: review the final diff and reply on the PR comment"
 ---
 
 # 039-shorten-summary-wrapper
@@ -28,4 +28,4 @@ steps:
 
 ## Phase 3 — Validation
 - [x] step 1: run targeted repository validation after the change
-- [ ] step 2: review the final diff and reply on the PR comment
+- [x] step 2: review the final diff and reply on the PR comment
