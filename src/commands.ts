@@ -15,7 +15,7 @@ import { formatTokens, formatCost, formatCharProgress } from "./stats.js";
 import { Container, Text, SettingsList, type SettingItem } from "@earendil-works/pi-tui";
 import { DynamicBorder, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
-import { normalizeSummaryToolCallRefs } from "./summary-refs.js";
+import { normalizeSummaryToolCallRefs, unwrapSummaryForDisplay } from "./summary-refs.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
 /**
@@ -790,7 +790,7 @@ export function registerCommands(
     const toolCount = normalizeSummaryToolCallRefs(details).length;
     const header = theme.fg("accent", `[pruner] Turn ${turnIndex} summary (${toolCount} tool${toolCount === 1 ? "" : "s"})`);
     if (expanded) {
-      return new Text(header + "\n" + message.content, 0, 0);
+      return new Text(header + "\n" + unwrapSummaryForDisplay(message.content), 0, 0);
     }
     return new Text(header, 0, 0);
   });

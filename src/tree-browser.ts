@@ -5,7 +5,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ToolCallRecord } from "./types.js";
 import { CUSTOM_TYPE_SUMMARY } from "./types.js";
-import { normalizeSummaryToolCallRefs } from "./summary-refs.js";
+import { normalizeSummaryToolCallRefs, unwrapSummaryForDisplay } from "./summary-refs.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
 // ── Tree node types ─────────────────────────────────────────────────────────
@@ -124,8 +124,9 @@ export function buildPruneTree(
       children.push(toolCallNode(record, 1));
     }
 
-    const summaryText =
+    const storedSummaryText =
       typeof customEntry.content === "string" ? customEntry.content : "";
+    const summaryText = unwrapSummaryForDisplay(storedSummaryText);
     const summaryChars = summaryText.length;
     const totalOriginalChars = children.reduce(
       (sum, c) => sum + (c.charCount ?? 0),

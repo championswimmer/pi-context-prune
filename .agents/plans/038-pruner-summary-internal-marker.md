@@ -8,11 +8,11 @@ steps:
       - "- [x] step 2: run the existing validation baseline"
   - phase: implementation
     steps:
-      - "- [ ] step 1: wrap persisted summary content in an explicit internal context marker"
-      - "- [ ] step 2: keep renderer and tree display readable if wrapped summaries are expanded"
+      - "- [x] step 1: wrap persisted summary content in an explicit internal context marker"
+      - "- [x] step 2: keep renderer and tree display readable if wrapped summaries are expanded"
   - phase: validation
     steps:
-      - "- [ ] step 1: run targeted repository validation"
+      - "- [x] step 1: run targeted repository validation"
       - "- [ ] step 2: review the final diff for minimal scope"
 ---
 
@@ -23,9 +23,9 @@ steps:
 - [x] step 2: run the existing validation baseline
 
 ## Phase 2 — Implementation
-- [ ] step 1: wrap persisted summary content in an explicit internal context marker
-- [ ] step 2: keep renderer and tree display readable if wrapped summaries are expanded
+- [x] step 1: wrap persisted summary content in an explicit internal context marker
+- [x] step 2: keep renderer and tree display readable if wrapped summaries are expanded
 
 ## Phase 3 — Validation
-- [ ] step 1: run targeted repository validation
+- [x] step 1: run targeted repository validation
 - [ ] step 2: review the final diff for minimal scope

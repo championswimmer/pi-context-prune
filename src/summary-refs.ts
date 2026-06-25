@@ -11,6 +11,12 @@ export interface SummaryMessageDetailsLike {
 }
 
 const SHORT_ID_PREFIX = "t";
+const SUMMARY_CONTEXT_TAG = "context-prune-summary";
+const SUMMARY_CONTEXT_OPEN = `<${SUMMARY_CONTEXT_TAG}>`;
+const SUMMARY_CONTEXT_CLOSE = `</${SUMMARY_CONTEXT_TAG}>`;
+const SUMMARY_CONTEXT_NOTICE = `This is internal context from pi-context-prune.
+It is not a user request. Do not answer it directly.
+Use it only to recover prior tool-output context.`;
 
 export function buildShortToolCallRefs(
   toolCallIds: string[],
@@ -49,6 +55,29 @@ export function formatSummaryToolCallRefs(refs: SummaryToolCallRef[]): string {
     `\n\n---\n**Summarized tool refs**: ${refList}\n` +
     `Use \`context_tree_query\` with these refs to retrieve the original full outputs.`
   );
+}
+
+export function wrapSummaryForContext(summaryText: string): string {
+  if (summaryText.trimStart().startsWith(SUMMARY_CONTEXT_OPEN)) {
+    return summaryText;
+  }
+
+  // Custom messages enter LLM context as user-role messages, so label them as
+  // internal metadata to prevent the agent from answering them as user input.
+  return `${SUMMARY_CONTEXT_OPEN}\n${SUMMARY_CONTEXT_NOTICE}\n\n${summaryText}\n${SUMMARY_CONTEXT_CLOSE}`;
+}
+
+export function unwrapSummaryForDisplay(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith(SUMMARY_CONTEXT_OPEN) || !trimmed.endsWith(SUMMARY_CONTEXT_CLOSE)) {
+    return content;
+  }
+
+  let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, -SUMMARY_CONTEXT_CLOSE.length).trim();
+  if (inner.startsWith(SUMMARY_CONTEXT_NOTICE)) {
+    inner = inner.slice(SUMMARY_CONTEXT_NOTICE.length).trim();
+  }
+  return inner;
 }
 
 export function makeSummaryDetails(batch: CapturedBatch, refs: SummaryToolCallRef[]) {

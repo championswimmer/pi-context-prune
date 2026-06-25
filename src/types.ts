@@ -23,7 +23,7 @@
  *
  * SUMMARY MESSAGE FORMAT (Ph1 step 5):
  *   customType: "context-prune-summary"
- *   content: markdown with one bullet per tool call + short-id footer
+ *   content: <context-prune-summary> wrapped markdown with one bullet per tool call + short-id footer
  *   details: SummaryMessageDetails (toolCallRefs, toolNames, turnIndex, timestamp)
  *   The content itself includes short alias IDs in plain text so the model can
  *   reference them in future context_tree_query calls without needing details.
