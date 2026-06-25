@@ -13,7 +13,7 @@ steps:
   - phase: validation
     steps:
       - "- [x] step 1: run targeted repository validation"
-      - "- [ ] step 2: review the final diff for minimal scope"
+      - "- [x] step 2: review the final diff for minimal scope"
 ---
 
 # 038-pruner-summary-internal-marker
@@ -28,4 +28,4 @@ steps:
 
 ## Phase 3 — Validation
 - [x] step 1: run targeted repository validation
-- [ ] step 2: review the final diff for minimal scope
+- [x] step 2: review the final diff for minimal scope
