@@ -67,6 +67,15 @@ export const PROGRESS_WIDGET_ID = "context-prune-progress";
 /** Name of the context_prune tool (injected only when agentic-auto mode is active) */
 export const CONTEXT_PRUNE_TOOL_NAME = "context_prune";
 
+/**
+ * Tool names from the pi-context extension that trigger a flush in "on-context-tag" mode.
+ *
+ * Current pi-context versions renamed `context_tag` to `context_checkpoint`
+ * (see https://github.com/ttttmr/pi-context). The legacy name is kept for
+ * backward compatibility with older installs of that extension.
+ */
+export const CONTEXT_TAG_TOOL_NAMES = ["context_checkpoint", "context_tag"] as const;
+
 /** System prompt injected when agentic-auto mode is active */
 export const AGENTIC_AUTO_SYSTEM_PROMPT = `[Context Prune — Agentic Auto Mode]
 You have access to the context_prune tool. Use it to summarize and compact preceding tool-call results from context.
@@ -97,7 +106,8 @@ What happens when you call context_prune:
 /**
  * When summarization (and context pruning) is triggered.
  * - "every-turn"     : after every assistant turn that calls tools
- * - "on-context-tag" : batches up turns and flushes when the model calls context_tag
+ * - "on-context-tag" : batches up turns and flushes when the model calls context_checkpoint
+ *                       (legacy pi-context name: context_tag)
  * - "on-demand"      : only when the user runs /pruner now
  * - "agent-message"  : batches up turns and flushes when the agent sends a final text response
  *                       (a turn with no tool calls), or when the agent loop ends (default)

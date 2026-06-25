@@ -54,7 +54,7 @@ Wires all modules together and registers Pi event handlers:
 - **`turn_end`** — captures the batch (filtering out any `context_prune` tool call to avoid re-queuing agentic-auto housekeeping), pushes to `pendingBatches`. Behavior depends on `pruneOn` mode:
   - `every-turn`: flushes immediately with `delivery: "session"`.
   - `on-context-tag` / `on-demand` / `agent-message` / `agentic-auto`: queues and notifies the user of pending count and trigger.
-- **`tool_execution_end`** — when `event.toolName === "context_tag"` and mode is `on-context-tag`, calls `flushPending` with `delivery: "runtime"`.
+- **`tool_execution_end`** — when `event.toolName` is `context_checkpoint` (or the legacy `context_tag`) and mode is `on-context-tag`, calls `flushPending` with `delivery: "runtime"`.
 - **`message_end`** — when mode is `agent-message` and the message is a final text-only assistant response (no tool calls), calls `flushPending` with `delivery: "session"`. This is the primary flush path for `agent-message` mode.
 - **`agent_end`** — safety net: if pending batches still remain (e.g. because no `message_end` fired before session shutdown), updates the status widget to show the pending count. Does **not** attempt a best-effort LLM call here to avoid starting async work after Pi may have already disposed the session.
 - **`before_agent_start`** — when mode is `agentic-auto` and pruning is enabled, appends `AGENTIC_AUTO_SYSTEM_PROMPT` to the system prompt so the LLM knows when and how to call `context_prune`.
@@ -67,7 +67,7 @@ Single source of truth for all interfaces and constants:
 - **`IndexEntryData`** — data shape written to session via `pi.appendEntry` for persistence across restarts.
 - **`PruneOn`** — `"every-turn" | "on-context-tag" | "on-demand" | "agent-message" | "agentic-auto"` — when summarization is triggered:
   - `every-turn`: summarize after every tool-calling turn.
-  - `on-context-tag`: batch turns, flush when `context_tag` is called.
+  - `on-context-tag`: batch turns, flush when `context_checkpoint` (legacy: `context_tag`) is called.
   - `on-demand`: only when the user runs `/pruner now`.
   - `agent-message`: batch turns, flush when the agent sends a final text-only response (default).
   - `agentic-auto`: the LLM decides when to prune by calling the `context_prune` tool, guided by `AGENTIC_AUTO_SYSTEM_PROMPT`.

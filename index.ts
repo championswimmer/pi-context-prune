@@ -27,6 +27,7 @@ import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, 
 import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
+  CONTEXT_TAG_TOOL_NAMES,
   AGENTIC_AUTO_SYSTEM_PROMPT,
   CUSTOM_TYPE_SUMMARY,
   CUSTOM_TYPE_INDEX,
@@ -463,7 +464,7 @@ export default function (pi: ExtensionAPI) {
       let trigger: string;
       switch (currentConfig.value.pruneOn) {
         case "on-context-tag":
-          trigger = "next context_tag";
+          trigger = "next context_checkpoint";
           break;
         case "agent-message":
           trigger = "agent's next text response";
@@ -486,9 +487,9 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // ── tool_execution_end: flush when context_tag fires ─────────────────────
+  // ── tool_execution_end: flush when context_checkpoint (or legacy context_tag) fires ──
   pi.on("tool_execution_end", async (event, ctx) => {
-    if (event.toolName !== "context_tag") return;
+    if (!(CONTEXT_TAG_TOOL_NAMES as readonly string[]).includes(event.toolName)) return;
     if (!currentConfig.value.enabled) return;
     if (currentConfig.value.pruneOn !== "on-context-tag") return;
     await flushPending(ctx, { delivery: "runtime" });

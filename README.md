@@ -101,14 +101,14 @@ That is why **`agent-message` is the default**: it batches a whole stretch of to
 References:
 - Anthropic prompt caching docs: <https://docs.claude.com/en/docs/build-with-claude/prompt-caching>
 - AWS Bedrock prompt caching overview: <https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html>
-- `pi-context` extension (`context_tag`, `context_log`, `context_checkout`): <https://github.com/ttttmr/pi-context>
+- `pi-context` extension (`context_checkpoint`, `context_timeline`, `context_compact`; legacy names `context_tag`, `context_log`, `context_checkout`): <https://github.com/ttttmr/pi-context>
 
 ### Mode trade-offs
 
 | Mode | Trigger | Pros | Cons / cache impact | Recommendation |
 |---|---|---|---|---|
 | `every-turn` | Immediately after each tool-calling turn | Smallest raw context as fast as possible; easiest to reason about | **Busts prompt cache the most often** because earlier context is rewritten after almost every tool turn; adds summarizer latency every turn; can cost more overall despite saving context tokens | **Debugging only.** Useful to test the extension, inspect summaries, or study behavior — not recommended for normal day-to-day use |
-| `on-context-tag` | When `context_tag` is called | Lets you align pruning with explicit milestones / save-points; fewer cache busts than `every-turn` if you tag sparingly | Only auto-triggers if you have the [`pi-context`](https://github.com/ttttmr/pi-context) extension installed, because that extension provides the `context_tag` tool; if you tag too often, you still churn cache; if you forget to tag, pending batches keep growing | Good if you already use `pi-context` and think in checkpoints / milestones |
+| `on-context-tag` | When `context_checkpoint` is called | Lets you align pruning with explicit milestones / save-points; fewer cache busts than `every-turn` if you tag sparingly | Only auto-triggers if you have the [`pi-context`](https://github.com/ttttmr/pi-context) extension installed, because that extension provides the `context_checkpoint` tool (legacy name `context_tag` is still recognized); if you tag too often, you still churn cache; if you forget to tag, pending batches keep growing | Good if you already use `pi-context` and think in checkpoints / milestones |
 | `on-demand` | Only when you run `/pruner now` | Maximum manual control; easiest mode for preserving cache because nothing changes until you decide; good for long investigations where you want to delay pruning | Easy to forget; pending batches can grow large; you must manage timing yourself | Good for advanced users who want explicit control over when the cache is intentionally invalidated |
 | `agent-message` | When the agent sends a final text-only response, or when the agent loop ends | Best balance of automation, context savings, and cache friendliness; batches many tool turns into one prune; after the prune, future requests become highly cacheable again until the next batch finishes | You do not reclaim space mid-batch; if a run goes extremely long before the final reply, context can grow more than in aggressive modes | **Recommended default.** Safest general-purpose mode for normal coding-agent workflows |
 | `agentic-auto` | The model decides by calling `context_prune` | Lets the agent compact context before it gets too large; can work well for long autonomous runs when the model is disciplined | Depends on model judgment; if the model calls `context_prune` too often, it can churn cache similarly to `every-turn`; behavior is less predictable than `agent-message` | Good for longer autonomous sessions after prompt-tuning and observation |
@@ -117,7 +117,7 @@ References:
 
 **`every-turn`** — Every tool-calling turn is summarized and pruned immediately. This is intentionally aggressive. It is useful for debugging the extension or validating summaries, but in real work it usually rewrites the prompt prefix too frequently and hurts provider-side prompt caching.
 
-**`on-context-tag`** — Tool-call turns are queued until `context_tag` is called, then all pending batches are summarized in one LLM call and pruned together. This mode is meant to pair with the [`pi-context`](https://github.com/ttttmr/pi-context) extension; without that extension, `context_tag` is not available, so this mode will not auto-trigger unless you switch modes or flush manually with `/pruner now`.
+**`on-context-tag`** — Tool-call turns are queued until `context_checkpoint` is called, then all pending batches are summarized in one LLM call and pruned together. This mode is meant to pair with the [`pi-context`](https://github.com/ttttmr/pi-context) extension; without that extension, `context_checkpoint` is not available, so this mode will not auto-trigger unless you switch modes or flush manually with `/pruner now`. The legacy tool name `context_tag` from older `pi-context` versions is still recognized.
 
 **`on-demand`** — Tool-call turns are batched but never summarized automatically. You decide when to flush with `/pruner now`. This is the most manual mode and also the easiest to keep cache-friendly, because you can wait until a large chunk of work is complete before changing earlier context.
 
@@ -295,7 +295,7 @@ turn_end (tool calls present + enabled)
   └─► if every-turn: flushPending() immediately
   └─► otherwise: notify user of pending count + trigger
 
-tool_execution_end (context_tag, on-context-tag mode)
+tool_execution_end (context_checkpoint / legacy context_tag, on-context-tag mode)
   └─► flushPending()
 
 agent_end

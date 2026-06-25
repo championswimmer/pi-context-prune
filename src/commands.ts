@@ -88,7 +88,7 @@ const SUBCOMMANDS = [
 
 const PRUNE_MODE_GUIDANCE: Record<ContextPruneConfig["pruneOn"], string> = {
   "every-turn": "Debugging only. Prunes after every tool turn, which is easiest to inspect but churns provider prompt caches the most.",
-  "on-context-tag": "Good for milestone-based workflows. Flushes when context_tag is called; requires the pi-context extension for automatic triggering.",
+  "on-context-tag": "Good for milestone-based workflows. Flushes when context_checkpoint (legacy: context_tag) is called; requires the pi-context extension for automatic triggering.",
   "on-demand": "Maximum manual control. Nothing is pruned until you run /pruner now, so cache invalidation happens only when you choose.",
   "agent-message": "Recommended default. Batches tool work and prunes once after the final text reply, giving the best balance of automation, context savings, and cache stability.",
   "agentic-auto": "Useful for longer autonomous runs. Lets the model call context_prune, but depends on the model using it sparingly.",
@@ -181,7 +181,7 @@ Usage:
   /pruner thinking <level>                 Set summarizer thinking: default, off, minimal, low, medium, high, xhigh
   /pruner prune-on                         Show or interactively pick the trigger
   /pruner prune-on every-turn              Summarize after every tool-calling turn (debugging only; worst for prompt cache churn)
-  /pruner prune-on on-context-tag          Summarize when context_tag is called (requires pi-context extension)
+  /pruner prune-on on-context-tag          Summarize when context_checkpoint (legacy: context_tag) is called (requires pi-context extension)
   /pruner prune-on on-demand               Only summarize when /pruner now runs
   /pruner prune-on agent-message           Summarize after the agent's final text reply (default; safest for cache stability)
   /pruner prune-on agentic-auto            LLM decides when to prune via context_prune tool
@@ -207,7 +207,7 @@ Batching mode:
 
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
-  - on-context-tag: good if you already use pi-context save-points. Prunes on explicit milestones via context_tag.
+  - on-context-tag: good if you already use pi-context save-points. Prunes on explicit milestones via context_checkpoint (legacy: context_tag).
   - on-demand: maximum manual control. Best when you want to decide exactly when to trade cache stability for shorter context.
   - agent-message: recommended default. Batches a whole tool-using run, then prunes once after the final text reply so future requests become cacheable again.
   - agentic-auto: useful for longer autonomous runs, but depends on the model using context_prune sparingly.
@@ -216,7 +216,7 @@ Why this matters:
   Frequent edits to earlier context can reduce prompt/prefix cache hits on providers that cache identical prefixes. Batched pruning is usually cheaper and faster than pruning every turn.
 
 Related:
-  - pi-context extension (provides context_tag): https://github.com/ttttmr/pi-context
+  - pi-context extension (provides context_checkpoint, legacy context_tag): https://github.com/ttttmr/pi-context
   - Anthropic prompt caching docs: https://docs.claude.com/en/docs/build-with-claude/prompt-caching
 
 Settings are saved to ~/.pi/agent/context-prune/settings.json`;
