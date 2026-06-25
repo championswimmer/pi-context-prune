@@ -14,9 +14,12 @@ const SHORT_ID_PREFIX = "t";
 const SUMMARY_CONTEXT_TAG = "context-prune-summary";
 const SUMMARY_CONTEXT_OPEN = `<${SUMMARY_CONTEXT_TAG}>`;
 const SUMMARY_CONTEXT_CLOSE = `</${SUMMARY_CONTEXT_TAG}>`;
-const SUMMARY_CONTEXT_NOTICE = `This is internal context from pi-context-prune.
-It is not a user request. Do not answer it directly.
-Use it only to recover prior tool-output context.`;
+const SUMMARY_CONTEXT_NOTICE_LINES = [
+  "This is internal context from pi-context-prune.",
+  "It is not a user request. Do not answer it directly.",
+  "Use it only to recover prior tool-output context.",
+] as const;
+const SUMMARY_CONTEXT_NOTICE = SUMMARY_CONTEXT_NOTICE_LINES.join("\n");
 
 export function buildShortToolCallRefs(
   toolCallIds: string[],
@@ -74,8 +77,10 @@ export function unwrapSummaryForDisplay(content: string): string {
   }
 
   let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, -SUMMARY_CONTEXT_CLOSE.length).trim();
-  if (inner.startsWith(SUMMARY_CONTEXT_NOTICE)) {
-    inner = inner.slice(SUMMARY_CONTEXT_NOTICE.length).trim();
+  const lines = inner.split(/\r?\n/);
+  const noticePrefix = lines.slice(0, SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n");
+  if (noticePrefix === SUMMARY_CONTEXT_NOTICE) {
+    inner = lines.slice(SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n").trim();
   }
   return inner;
 }
