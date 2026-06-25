@@ -61,8 +61,9 @@ export function formatSummaryToolCallRefs(refs: SummaryToolCallRef[]): string {
 }
 
 export function wrapSummaryForContext(summaryText: string): string {
-  if (summaryText.trimStart().startsWith(SUMMARY_CONTEXT_OPEN)) {
-    return summaryText;
+  const trimmed = summaryText.trimStart();
+  if (trimmed.startsWith(SUMMARY_CONTEXT_OPEN)) {
+    return trimmed;
   }
 
   // Custom messages enter LLM context as user-role messages, so label them as
@@ -79,8 +80,9 @@ export function unwrapSummaryForDisplay(content: string): string {
   let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, -SUMMARY_CONTEXT_CLOSE.length).trim();
   const lines = inner.split(/\r?\n/);
   const noticePrefix = lines.slice(0, SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n");
-  if (noticePrefix === SUMMARY_CONTEXT_NOTICE) {
-    inner = lines.slice(SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n").trim();
+  const separatorIndex = SUMMARY_CONTEXT_NOTICE_LINES.length;
+  if (noticePrefix === SUMMARY_CONTEXT_NOTICE && lines[separatorIndex] === "") {
+    inner = lines.slice(separatorIndex + 1).join("\n").trim();
   }
   return inner;
 }
