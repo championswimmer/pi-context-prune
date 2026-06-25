@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import type { ContextPruneConfig, PruneOn, SummarizerThinking } from "./types.js";
-import { DEFAULT_CONFIG, PRUNE_ON_MODES, SUMMARIZER_THINKING_LEVELS } from "./types.js";
+import { DEFAULT_CONFIG, MIN_RAW_CHARS_TO_PRUNE_PRESETS, PRUNE_ON_MODES, SUMMARIZER_THINKING_LEVELS } from "./types.js";
 
 /** Path to the extension's own settings file, independent of any project. */
 export const SETTINGS_PATH = join(homedir(), ".pi", "agent", "context-prune", "settings.json");
@@ -13,6 +13,14 @@ function isPruneOn(value: unknown): value is PruneOn {
 
 function isSummarizerThinking(value: unknown): value is SummarizerThinking {
   return typeof value === "string" && SUMMARIZER_THINKING_LEVELS.some((level) => level.value === value);
+}
+
+function normalizeMinRawCharsToPrune(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_CONFIG.minRawCharsToPrune;
+  const rounded = Math.max(0, Math.round(value));
+  return MIN_RAW_CHARS_TO_PRUNE_PRESETS.includes(rounded as (typeof MIN_RAW_CHARS_TO_PRUNE_PRESETS)[number])
+    ? rounded
+    : DEFAULT_CONFIG.minRawCharsToPrune;
 }
 
 /** Reads ~/.pi/agent/context-prune/settings.json and returns the config (or defaults). */
@@ -29,6 +37,7 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
           ? merged.showPruneStatusLine
           : DEFAULT_CONFIG.showPruneStatusLine,
       pruneOn: isPruneOn(merged.pruneOn) ? merged.pruneOn : DEFAULT_CONFIG.pruneOn,
+      minRawCharsToPrune: normalizeMinRawCharsToPrune(merged.minRawCharsToPrune),
       summarizerThinking: isSummarizerThinking(merged.summarizerThinking)
         ? merged.summarizerThinking
         : DEFAULT_CONFIG.summarizerThinking,

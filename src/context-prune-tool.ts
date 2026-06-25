@@ -23,6 +23,7 @@ import { pruneProgressText } from "./progress-text.js";
 type FlushResult =
   | { ok: true; reason: "flushed"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
   | { ok: true; reason: "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+  | { ok: true; reason: "skipped-too-small" | "skipped"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
   | { ok: false; reason: string; error?: string };
 
 function sendToolProgress(
@@ -95,6 +96,18 @@ export function registerContextPruneTool(
               {
                 type: "text",
                 text: `Context prune skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"}: the summary was ${result.summaryCharCount} chars while the raw tool results were ${result.rawCharCount} chars. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
+              },
+            ],
+            details: result,
+          };
+        }
+
+        if (result.reason === "skipped-too-small" || result.reason === "skipped") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Context prune skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"}: the raw tool-result text stayed below the configured minimum prune threshold, so the original results were kept and the prune frontier advanced past this range.`,
               },
             ],
             details: result,

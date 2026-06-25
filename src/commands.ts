@@ -73,7 +73,7 @@ const SUBCOMMANDS = [
   { value: "settings", label: "settings  — interactive settings overlay" },
   { value: "on",       label: "on        — enable context pruning" },
   { value: "off",      label: "off       — disable context pruning" },
-  { value: "status",  label: "status    — show status, model, thinking, prune trigger, and status line" },
+  { value: "status",  label: "status    — show status, model, thinking, prune trigger, threshold, and status line" },
   { value: "model",   label: "model     — show or set the summarizer model" },
   { value: "thinking", label: "thinking  — show or set the summarizer thinking level" },
   { value: "prune-on", label: "prune-on  — show or set the trigger mode" },
@@ -167,13 +167,30 @@ function pruneStatusLineDescription(config: ContextPruneConfig): string {
   return `Hide the prune footer status line and queued turn notifications. Currently ${base}.`;
 }
 
+const MIN_RAW_CHARS_PRESETS = [
+  { value: 0, label: "Disabled" },
+  { value: 700, label: "Default" },
+  { value: 1000, label: "Large" },
+] as const;
+
+function minRawCharsPresetLabel(value: number): string {
+  return MIN_RAW_CHARS_PRESETS.find((preset) => preset.value === value)?.label ?? `${value} chars`;
+}
+
+function minRawCharsDescription(value: number): string {
+  if (value === 0) {
+    return "No minimum raw-size guard. Every pending batch can be summarized, then the existing oversized-summary check still decides whether pruning is kept.";
+  }
+  return `Only summarize batches whose raw tool-result text is at least ${value} chars. Smaller batches are skipped quietly before the summarizer runs.`;
+}
+
 const HELP_TEXT = `pruner — automatically summarizes tool-call outputs to keep context lean.
 
 Usage:
   /pruner settings                         Interactive settings overlay
   /pruner on                               Enable context pruning
   /pruner off                              Disable context pruning
-  /pruner status                           Show status, model, prune trigger, batching mode, and stats
+  /pruner status                           Show status, model, prune trigger, batching mode, threshold, and stats
   /pruner model                            Show the current summarizer model
   /pruner model <id>                       Set summarizer model (e.g. anthropic/claude-haiku-3-5)
   /pruner model <id>:<thinking>            Set summarizer model and thinking together (e.g. openai/gpt-5-mini:low)
@@ -204,6 +221,11 @@ Batching mode:
   - turn (default): each assistant turn that used tools gets its own summary block. Small, granular.
   - agent-message: all assistant turns between two consecutive user messages are merged into one summary.
     Use this when a single user request triggers many back-to-back tool rounds that belong together.
+
+Minimum raw-size guard:
+  - Disabled (0): do not pre-skip small batches; let the existing oversized-summary check decide after summarization.
+  - Default (700): skip obviously tiny batches quietly before the summarizer runs. This avoids paying summarizer cost when summaries are usually larger than the raw output.
+  - Large (1000): be more conservative and summarize only larger raw tool-output batches.
 
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
@@ -346,7 +368,7 @@ export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
   flushPending: (ctx: ExtensionCommandContext, options?: FlushOptions) => Promise<
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+    | { ok: true; reason: "flushed" | "skipped-oversized" | "skipped-too-small" | "skipped"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
     | { ok: false; reason: string; error?: string }
   >,
   capturePendingBatches: (ctx: ExtensionCommandContext) => CapturedBatch[],
@@ -447,6 +469,13 @@ export function registerCommands(
               description: summarizerThinkingDescription(config.summarizerThinking),
             },
             {
+              id: "minRawCharsToPrune",
+              label: "Min raw chars to prune",
+              values: MIN_RAW_CHARS_PRESETS.map((preset) => String(preset.value)),
+              currentValue: String(config.minRawCharsToPrune),
+              description: minRawCharsDescription(config.minRawCharsToPrune),
+            },
+            {
               id: "remindUnprunedCount",
               label: "Remind unpruned count",
               values: ["true", "false"],
@@ -492,6 +521,12 @@ export function registerCommands(
               const thinkingItem = items.find((item) => item.id === "summarizerThinking");
               if (thinkingItem) {
                 thinkingItem.description = summarizerThinkingDescription(newConfig.summarizerThinking);
+              }
+            } else if (id === "minRawCharsToPrune") {
+              newConfig.minRawCharsToPrune = Number(newValue);
+              const thresholdItem = items.find((item) => item.id === "minRawCharsToPrune");
+              if (thresholdItem) {
+                thresholdItem.description = minRawCharsDescription(newConfig.minRawCharsToPrune);
               }
             } else if (id === "remindUnprunedCount") {
               newConfig.remindUnprunedCount = newValue === "true";
@@ -573,7 +608,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `pruner status:\n  enabled:   ${cfg.enabled}\n  model:     ${cfg.summarizerModel}\n  thinking:  ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:   ${mode}\n  batching:  ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  min raw:   ${minRawCharsPresetLabel(cfg.minRawCharsToPrune)} (${cfg.minRawCharsToPrune})\n  status:    ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:    ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }
@@ -753,6 +788,14 @@ export function registerCommands(
             ctx.ui.notify(
               `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
               "warning"
+            );
+            break;
+          }
+
+          if (result.reason === "skipped-too-small" || result.reason === "skipped") {
+            ctx.ui.notify(
+              `pruner: skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"} — raw tool-result text stayed below the configured minimum (${currentConfig.value.minRawCharsToPrune} chars), so the original results were kept and the frontier advanced`,
+              "info"
             );
             break;
           }

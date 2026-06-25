@@ -546,6 +546,7 @@ graph LR
 
 The `pi-context-prune` extension includes several mechanisms to ensure pruning is safe, transparent, and configurable:
 
+- **Minimum Raw-Size Guard (`minRawCharsToPrune`):** Before calling the summarizer, the pruner can skip obviously tiny batches whose raw tool-result text falls below a configured minimum (for example `700` chars by default). This avoids paying summarizer cost for small batches that are unlikely to compress well. The frontier still advances, and the original raw text remains in context.
 - **Oversized Summary Skipping (`skip-oversized`):** Occasionally, a batch of tool calls produces very little raw text, and the LLM's summary ends up being *larger* than the original content. When this happens, the pruner detects it and automatically skips pruning that batch. The frontier advances, but the original raw text remains in context to save tokens.
 - **Tree Browser (`/pruner tree`):** You can visually explore all pruned tool calls in your current session using an interactive, foldable tree UI. Selecting a summary lets you inspect its contents directly.
 - **Agentic-Auto Unpruned Count Reminder (`remindUnprunedCount`):** In `agentic-auto` mode, the agent decides when to prune. To help the LLM maintain a healthy cadence, the extension appends a tiny ephemeral `<pruner-note>` to the last tool result before each generation, reminding the model exactly how many unpruned tool calls have piled up in context.
