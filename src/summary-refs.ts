@@ -14,11 +14,11 @@ const SHORT_ID_PREFIX = "t";
 const SUMMARY_CONTEXT_TAG = "context-prune-summary";
 const SUMMARY_CONTEXT_OPEN = `<${SUMMARY_CONTEXT_TAG}>`;
 const SUMMARY_CONTEXT_CLOSE = `</${SUMMARY_CONTEXT_TAG}>`;
-const SUMMARY_CONTEXT_NOTICE_LINES = [
+const LEGACY_SUMMARY_CONTEXT_NOTICE_LINES = [
   "Internal pruner context; not a user request.",
   "Do not answer directly; use only for prior tool-output context.",
 ] as const;
-const SUMMARY_CONTEXT_NOTICE = SUMMARY_CONTEXT_NOTICE_LINES.join("\n");
+const LEGACY_SUMMARY_CONTEXT_NOTICE = LEGACY_SUMMARY_CONTEXT_NOTICE_LINES.join("\n");
 
 export function buildShortToolCallRefs(
   toolCallIds: string[],
@@ -65,9 +65,7 @@ export function wrapSummaryForContext(summaryText: string): string {
     return trimmed;
   }
 
-  // Custom messages enter LLM context as user-role messages, so label them as
-  // internal metadata to prevent the agent from answering them as user input.
-  return `${SUMMARY_CONTEXT_OPEN}\n${SUMMARY_CONTEXT_NOTICE}\n\n${summaryText}\n${SUMMARY_CONTEXT_CLOSE}`;
+  return `${SUMMARY_CONTEXT_OPEN}\n${summaryText}\n${SUMMARY_CONTEXT_CLOSE}`;
 }
 
 export function unwrapSummaryForDisplay(content: string): string {
@@ -83,9 +81,9 @@ export function unwrapSummaryForDisplay(content: string): string {
 
   let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, closeStart).trim();
   const lines = inner.split(/\r?\n/);
-  const noticePrefix = lines.slice(0, SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n");
-  const blankLineIndex = SUMMARY_CONTEXT_NOTICE_LINES.length;
-  if (noticePrefix === SUMMARY_CONTEXT_NOTICE) {
+  const noticePrefix = lines.slice(0, LEGACY_SUMMARY_CONTEXT_NOTICE_LINES.length).join("\n");
+  const blankLineIndex = LEGACY_SUMMARY_CONTEXT_NOTICE_LINES.length;
+  if (noticePrefix === LEGACY_SUMMARY_CONTEXT_NOTICE) {
     const hasSeparator = lines.length > blankLineIndex && lines[blankLineIndex].trim() === "";
     inner = lines.slice(blankLineIndex + (hasSeparator ? 1 : 0)).join("\n").trim();
   }
