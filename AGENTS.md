@@ -62,7 +62,7 @@ Wires all modules together and registers Pi event handlers:
 - **`tool_execution_end`** — when `event.toolName` is `context_checkpoint` (or the legacy `context_tag`) and mode is `on-context-tag`, calls `flushPending` with `delivery: "runtime"`.
 - **`agent_end`** — primary flush path for `agent-message` mode via `handleAgentEndLifecycle`. Summarizes only when the last assistant message has `stopReason === "stop"` and no tool calls, passing `ctx.signal` so Esc can cancel the summarizer. Unsuccessful endings (`error` / `aborted` / `length` / tool use) keep batches pending and refresh the pending status. Other modes only update the pending status when batches remain.
 - **`before_agent_start`** — when mode is `agentic-auto` and pruning is enabled, appends `AGENTIC_AUTO_SYSTEM_PROMPT` to the system prompt so the LLM knows when and how to call `context_prune`.
-- **`context`** — filters the message array sent to the LLM, removing `ToolResultMessage` entries that have been summarized. When `pruneOn === "agentic-auto"`, also injects stored batch summaries near the pruned toolCalls via pure `injectSummaries` (no steer). Additionally, when `remindUnprunedCount` is true, appends a `<pruner-note>` reminder to the last toolResult. Returns `undefined` (no change) if neither pruning nor annotation modified the list.
+- **`context`** — filters the message array sent to the LLM, removing `ToolResultMessage` entries that have been summarized. When `pruneOn === "agentic-auto"`, also injects stored batch summaries near the pruned toolCalls via pure `injectSummaries` (no steer). Additionally, when `remindUnprunedCount` is true, applies a `<pruner-note>` only when unpruned work crosses 8, then 12 calls. The watermark resets below 8 and on session/branch changes. Returns `undefined` (no change) if neither pruning nor annotation modified the list.
 
 ### `src/types.ts` — Shared types and constants
 Single source of truth for all interfaces and constants:
@@ -125,9 +125,10 @@ Maintains the runtime `Map<toolCallId, ToolCallRecord>` and handles session pers
 - **`injectSummaries(messages, indexer, pruneOn)`** — agentic-auto only pure normalization: removes indexer-managed persisted summaries, then re-inserts only committed summaries after the last covered toolCall block so merged multi-turn batches stay causally ordered. Summaries whose toolCalls left context (for example after compaction) stay out; repeated calls are idempotent. Other modes return messages unchanged.
 
 ### `src/reminder.ts` — Unpruned-count reminder (agentic-auto only)
-- **`countUnprunedToolCalls(messages, indexer)`** — walks `AssistantMessage` `toolCall` content blocks and counts those whose id is NOT in the indexer.
+- **`countUnprunedToolCalls(messages, indexer)`** — walks `AssistantMessage` `toolCall` content blocks and counts those whose id is NOT in the indexer, excluding `context_prune` housekeeping calls.
 - **`buildReminderText(count)`** — returns `<pruner-note>N unpruned tool call result(s) currently in context. Consider calling context_prune after a logical batch of 8–12 related tool calls.</pruner-note>`.
-- **`annotateWithUnprunedCount(messages, count)`** — if the last message is a `ToolResultMessage`, returns a shallow-cloned list with a `text` content block appended carrying the reminder. Otherwise returns `messages` unchanged. Wired from `index.ts`'s `context` handler, gated on `enabled && pruneOn === "agentic-auto" && remindUnprunedCount`. Annotating only the tail of the last toolResult preserves role alternation and keeps the static prompt-cache prefix intact.
+- **`annotateWithUnprunedCount(messages, count)`** — if the last message is a `ToolResultMessage`, returns a shallow-cloned list with a `text` content block appended carrying the reminder. Otherwise returns `messages` unchanged.
+- **`applyUnprunedReminder(messages, indexer, watermark)`** — applies the reminder only on the 8- and 12-call threshold crossings and returns the next watermark. Wired from `index.ts`'s `context` handler, gated on `enabled && pruneOn === "agentic-auto" && remindUnprunedCount`. Annotating only the tail of the last toolResult preserves role alternation and keeps the static prompt-cache prefix intact.
 
 ### `src/query-tool.ts` — `context_tree_query` tool
 Registers a Pi tool that allows the LLM (or user) to recover pruned outputs:

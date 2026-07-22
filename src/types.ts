@@ -165,11 +165,9 @@ export interface ContextPruneConfig {
   /** When to trigger summarization and pruning */
   pruneOn: PruneOn;
   /**
-   * Whether to inject a small ephemeral reminder before each LLM call
-   * telling the model how many unpruned tool-call results have piled up.
-   * Only honored when `enabled && pruneOn === "agentic-auto"`. In all other
-   * modes this flag is a no-op (the reminder is meant to nudge the LLM to
-   * call `context_prune` at a sensible cadence).
+   * Whether to inject a small ephemeral reminder when unpruned calls first
+   * reach 8, then 12. Only honored when `enabled && pruneOn === "agentic-auto"`.
+   * In all other modes this flag is a no-op.
    */
   remindUnprunedCount: boolean;
   /**

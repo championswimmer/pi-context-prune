@@ -3,10 +3,9 @@
  *
  * Used only in `agentic-auto` mode. Before each LLM call, computes how many
  * tool-call results in the current message list have NOT yet been summarized
- * (i.e. assistant `toolCall` blocks whose `toolCallId` is not in the indexer)
- * and appends a tiny `<pruner-note>` line to the last `ToolResultMessage`'s
- * content. The note nudges the model to call the `context_prune` tool at a
- * sensible cadence.
+ * (i.e. assistant `toolCall` blocks whose `toolCallId` is not in the indexer).
+ * It appends a tiny `<pruner-note>` only when that count first reaches 8 or 12,
+ * so the note nudges the model without repeating on every LLM call.
  *
  * Why annotate the last toolResult instead of injecting a new message:
  *   - Preserves user/assistant/toolResult role alternation. A synthetic
@@ -24,15 +23,18 @@
  */
 
 import type { ToolCallIndexer } from "./indexer.js";
+import { CONTEXT_PRUNE_TOOL_NAME } from "./types.js";
 
 const PRUNER_NOTE_OPEN = "<pruner-note>";
 const PRUNER_NOTE_CLOSE = "</pruner-note>";
+const FIRST_REMINDER_THRESHOLD = 8;
+const FINAL_REMINDER_THRESHOLD = 12;
 
 /**
  * Counts tool-call results currently in `messages` that have NOT yet been
  * summarized. A tool call is considered "unpruned" when its `toolCallId`
  * appears as an `AssistantMessage` `toolCall` content block but is absent
- * from the indexer.
+ * from the indexer. The `context_prune` housekeeping call is excluded.
  */
 export function countUnprunedToolCalls(messages: any[], indexer: ToolCallIndexer): number {
   let count = 0;
@@ -41,6 +43,7 @@ export function countUnprunedToolCalls(messages: any[], indexer: ToolCallIndexer
     if (!Array.isArray(msg.content)) continue;
     for (const block of msg.content) {
       if (block?.type !== "toolCall") continue;
+      if (block.name === CONTEXT_PRUNE_TOOL_NAME) continue;
       const id = block.toolCallId ?? block.id;
       if (!id) continue;
       if (!indexer.isSummarized(id)) count++;
@@ -84,4 +87,30 @@ export function annotateWithUnprunedCount(messages: any[], count: number): any[]
   const out = messages.slice();
   out[lastIndex] = clonedLast;
   return out;
+}
+
+/**
+ * Adds a reminder only when unpruned work crosses the 8- or 12-call boundary.
+ * The watermark resets after the batch is pruned, so later work can be reminded.
+ */
+export function applyUnprunedReminder(
+  messages: any[],
+  indexer: ToolCallIndexer,
+  watermark: number,
+): { messages: any[]; watermark: number } {
+  const count = countUnprunedToolCalls(messages, indexer);
+  const threshold =
+    count >= FINAL_REMINDER_THRESHOLD
+      ? FINAL_REMINDER_THRESHOLD
+      : count >= FIRST_REMINDER_THRESHOLD
+        ? FIRST_REMINDER_THRESHOLD
+        : 0;
+
+  if (threshold === 0) return { messages, watermark: 0 };
+  if (threshold <= watermark) return { messages, watermark };
+
+  const annotated = annotateWithUnprunedCount(messages, count);
+  return annotated === messages
+    ? { messages, watermark }
+    : { messages: annotated, watermark: threshold };
 }

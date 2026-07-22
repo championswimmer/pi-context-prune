@@ -210,7 +210,7 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `remindUnprunedCount` | `true` / `false` | `true` |
 
 - `showPruneStatusLine: true` keeps the prune footer widget and the automatic queued-turn notice visible. Turn it off if you want pruning to stay active without the extra status noise.
-- `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
+- `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` when unpruned tool calls first reach 8, then 12. The `context_prune` housekeeping call is excluded. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
 
 - `summarizerModel: "default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
 - `summarizerThinking: "default"` preserves old behavior: no explicit thinking/reasoning option is added to summarizer calls.

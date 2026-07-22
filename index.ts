@@ -19,7 +19,7 @@ import { captureBatch, captureUnindexedBatchesFromSession, groupBatchesByMode } 
 import { resolveModel, summarizeBatch } from "./src/summarizer.js";
 import { ToolCallIndexer } from "./src/indexer.js";
 import { injectSummaries, pruneMessages } from "./src/pruner.js";
-import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminder.js";
+import { applyUnprunedReminder } from "./src/reminder.js";
 import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, setPruneStatusWidget } from "./src/commands.js";
 import { handleViewerSessionShutdown } from "./src/viewer-server.js";
@@ -60,6 +60,7 @@ export default function (pi: ExtensionAPI) {
   // Pending batches — accumulated until the prune trigger fires
   const pendingBatches: CapturedBatch[] = [];
   let isFlushing = false;
+  let reminderWatermark = 0;
 
   type FlushResult =
     | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
@@ -427,6 +428,7 @@ export default function (pi: ExtensionAPI) {
 
     // Clear any batches queued before the session reload
     pendingBatches.length = 0;
+    reminderWatermark = 0;
 
     // Update footer status
     setPruneStatusWidget(ctx, currentConfig.value, statsAccum.getStats());
@@ -447,6 +449,7 @@ export default function (pi: ExtensionAPI) {
     frontier.reconstructFromSession(ctx);
     // Pending batches belong to the old branch — discard them
     pendingBatches.length = 0;
+    reminderWatermark = 0;
   });
 
   // ── turn_end: capture batch, flush immediately or queue ──────────────────
@@ -539,7 +542,10 @@ export default function (pi: ExtensionAPI) {
 
   // ── context: prune summarized tool results from next LLM call ─────────────
   pi.on("context", async (event, _ctx) => {
-    if (!currentConfig.value.enabled) return undefined;
+    if (!currentConfig.value.enabled) {
+      reminderWatermark = 0;
+      return undefined;
+    }
 
     const indexEmpty = indexer.getIndex().size === 0;
     let messages = event.messages;
@@ -562,22 +568,18 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // Append a small `<pruner-note>` to the last toolResult telling the model
-    // how many unpruned tool calls are sitting in context. Only active in
-    // agentic-auto mode (where the LLM itself decides when to call
-    // context_prune) and only when the user has the reminder enabled.
     if (
       currentConfig.value.pruneOn === "agentic-auto" &&
       currentConfig.value.remindUnprunedCount
     ) {
-      const count = countUnprunedToolCalls(messages, indexer);
-      if (count > 0) {
-        const annotated = annotateWithUnprunedCount(messages, count);
-        if (annotated !== messages) {
-          messages = annotated;
-          changed = true;
-        }
+      const reminder = applyUnprunedReminder(messages, indexer, reminderWatermark);
+      reminderWatermark = reminder.watermark;
+      if (reminder.messages !== messages) {
+        messages = reminder.messages;
+        changed = true;
       }
+    } else {
+      reminderWatermark = 0;
     }
 
     if (!changed) return undefined;

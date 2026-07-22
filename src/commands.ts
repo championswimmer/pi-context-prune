@@ -183,9 +183,9 @@ function parseCliInt(raw: string): number | null {
 function remindUnprunedCountDescription(config: ContextPruneConfig): string {
   const base = config.remindUnprunedCount ? "ON" : "OFF";
   if (config.pruneOn === "agentic-auto") {
-    return `Inject a small <pruner-note> reminder before each LLM call telling the model how many unpruned tool calls are in context. Currently ${base}. Only active in agentic-auto mode.`;
+    return `Inject a small <pruner-note> reminder when unpruned tool calls first reach 8, then 12. Currently ${base}. Only active in agentic-auto mode.`;
   }
-  return `Inject a small <pruner-note> reminder before each LLM call. Currently ${base}, but has NO effect in '${config.pruneOn}' mode — only honored when prune trigger is 'agentic-auto'.`;
+  return `Inject a small <pruner-note> reminder at 8 and 12 unpruned tool calls. Currently ${base}, but has NO effect in '${config.pruneOn}' mode — only honored when prune trigger is 'agentic-auto'.`;
 }
 
 /** Best-effort session label for the web viewer header. */
@@ -253,10 +253,9 @@ Usage:
 
 Agentic-auto reminder:
   When prune-on is 'agentic-auto' and remindUnprunedCount is true (default), the
-  extension appends a tiny <pruner-note> line to the last toolResult before each
-  LLM call telling the model how many unpruned tool calls have piled up. This
-  helps the LLM decide when to call context_prune. Toggle via /pruner settings.
-  This setting has no effect in any other prune-on mode.
+  extension appends a tiny <pruner-note> line when unpruned tool calls first reach
+  8, then 12. This helps the LLM decide when to call context_prune. Toggle via
+  /pruner settings. This setting has no effect in any other prune-on mode.
 
 Batching mode:
   - turn (default): each assistant turn that used tools gets its own summary block. Small, granular.
