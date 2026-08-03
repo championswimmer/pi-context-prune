@@ -63,20 +63,21 @@ function findSummaryInsertIndex(messages: any[], toolCallIds: string[]): number 
 }
 
 /**
- * agentic-auto only: normalize stored batch summaries near pruned toolCalls.
- * Pure function — no IO. Existing managed summaries are removed first, then
- * only fully committed summaries with a covered toolCall still in context return.
+ * Normalize stored batch summaries near pruned toolCalls, for every pruneOn
+ * mode. Pure function — no IO. Existing managed summaries are removed first,
+ * then only fully committed summaries with a covered toolCall still in context
+ * return.
  *
- * Why here (not flush/steer): context_prune runs while isStreaming, so steer
- * would re-wake the agent. Injecting on every LLM context build is timing-safe.
+ * Why here (not flush/steer): session-delivered summaries (agent-message,
+ * every-turn) are appended to the session file only — they never enter the
+ * live agent context within the running process. Injecting from the indexer
+ * on every LLM context build is the only path that shows them to the model,
+ * and it is timing-safe while isStreaming (steer would re-wake the agent).
  */
 export function injectSummaries(
   messages: any[],
   indexer: ToolCallIndexer,
-  pruneOn: PruneOn,
 ): any[] {
-  if (pruneOn !== "agentic-auto") return messages;
-
   const storedSummaries = indexer.getSummaries();
   if (storedSummaries.length === 0) return messages;
 

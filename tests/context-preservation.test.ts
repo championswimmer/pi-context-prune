@@ -110,7 +110,7 @@ describe("ToolCallIndexer commit boundary", () => {
   });
 });
 
-describe("injectSummaries for agentic-auto", () => {
+describe("injectSummaries", () => {
   test("agentic-auto: summarized toolResult is removed and summary appears near the toolCall", () => {
     const indexer = new ToolCallIndexer();
     indexTool(indexer, "tc1");
@@ -124,7 +124,7 @@ describe("injectSummaries for agentic-auto", () => {
     ] as any[];
 
     const pruned = pruneMessages(messages, indexer, "agentic-auto");
-    const injected = injectSummaries(pruned, indexer, "agentic-auto");
+    const injected = injectSummaries(pruned, indexer);
 
     expect(injected.map((m: any) => m.role)).toEqual([
       "user",
@@ -155,15 +155,14 @@ describe("injectSummaries for agentic-auto", () => {
     const once = injectSummaries(
       pruneMessages(messages, indexer, "agentic-auto"),
       indexer,
-      "agentic-auto",
     );
-    const twice = injectSummaries(once, indexer, "agentic-auto");
+    const twice = injectSummaries(once, indexer);
 
     expect(twice.filter((m: any) => m.role === "custom" && m.customType === CUSTOM_TYPE_SUMMARY)).toHaveLength(1);
     expect(twice).toEqual(once);
   });
 
-  test("non-agentic-auto modes only drop toolResults and do not inject summaries", () => {
+  test("all modes inject committed summaries near the pruned toolCalls", () => {
     const indexer = new ToolCallIndexer();
     indexTool(indexer, "tc1");
     recordSummary(indexer, "batch-1 summary", ["tc1"]);
@@ -174,12 +173,49 @@ describe("injectSummaries for agentic-auto", () => {
       { role: "user", content: "later" },
     ] as any[];
 
+    // agent-message/every-turn deliver summaries to the session file only;
+    // without injection the live process never shows them to the LLM.
     for (const mode of ["every-turn", "on-context-tag", "on-demand", "agent-message"] as const) {
-      const pruned = pruneMessages(messages, indexer);
-      const result = injectSummaries(pruned, indexer, mode);
-      expect(result.map((m: any) => m.role)).toEqual(["assistant", "user"]);
-      expect(result.some((m: any) => m.customType === CUSTOM_TYPE_SUMMARY)).toBe(false);
+      const pruned = pruneMessages(messages, indexer, mode);
+      const result = injectSummaries(pruned, indexer);
+      expect(result.map((m: any) => m.role)).toEqual(["assistant", "custom", "user"]);
+      expect(result[1]).toMatchObject({
+        role: "custom",
+        customType: CUSTOM_TYPE_SUMMARY,
+        content: "batch-1 summary",
+        display: false,
+      });
     }
+  });
+
+  test("summary already loaded from session file is deduped, not duplicated", () => {
+    const indexer = new ToolCallIndexer();
+    indexTool(indexer, "tc1");
+    recordSummary(indexer, "batch-1 summary", ["tc1"]);
+
+    const messages = [
+      assistantWithCalls("tc1"),
+      {
+        role: "custom",
+        customType: CUSTOM_TYPE_SUMMARY,
+        content: "batch-1 summary",
+        display: false,
+        details: {
+          toolCallRefs: [{ shortId: "t1", toolCallId: "tc1" }],
+          toolNames: ["bash"],
+          turnIndex: 0,
+          timestamp: 1,
+        },
+      },
+      { role: "user", content: "later" },
+    ] as any[];
+
+    const result = injectSummaries(pruneMessages(messages, indexer, "agent-message"), indexer);
+    const summaries = result.filter(
+      (m: any) => m.role === "custom" && m.customType === CUSTOM_TYPE_SUMMARY,
+    );
+    expect(summaries).toHaveLength(1);
+    expect(result.map((m: any) => m.role)).toEqual(["assistant", "custom", "user"]);
   });
 
   test("summary spanning assistant turns appears after the last covered toolCall", () => {
@@ -199,7 +235,6 @@ describe("injectSummaries for agentic-auto", () => {
     const result = injectSummaries(
       pruneMessages(messages, indexer, "agentic-auto"),
       indexer,
-      "agentic-auto",
     );
 
     expect(result).toEqual([
@@ -232,7 +267,6 @@ describe("injectSummaries for agentic-auto", () => {
     const result = injectSummaries(
       pruneMessages(messages, indexer, "agentic-auto"),
       indexer,
-      "agentic-auto",
     );
     const roles = result.map((m: any) => (m.role === "custom" ? `custom:${m.content}` : m.role));
 
@@ -246,7 +280,7 @@ describe("injectSummaries for agentic-auto", () => {
     ]);
 
     // Second pass must not stack duplicates
-    const again = injectSummaries(result, indexer, "agentic-auto");
+    const again = injectSummaries(result, indexer);
     expect(again.filter((m: any) => m.customType === CUSTOM_TYPE_SUMMARY)).toHaveLength(2);
   });
 
@@ -256,7 +290,7 @@ describe("injectSummaries for agentic-auto", () => {
     recordSummary(indexer, "compacted summary", ["tc1"]);
 
     const messages = [{ role: "user", content: "new work after compaction" }] as any[];
-    const result = injectSummaries(messages, indexer, "agentic-auto");
+    const result = injectSummaries(messages, indexer);
 
     expect(result).toBe(messages);
     expect(result).toEqual([{ role: "user", content: "new work after compaction" }]);
@@ -274,7 +308,7 @@ describe("injectSummaries for agentic-auto", () => {
     ] as any[];
 
     const pruned = pruneMessages(messages, indexer, "agentic-auto");
-    const result = injectSummaries(pruned, indexer, "agentic-auto");
+    const result = injectSummaries(pruned, indexer);
 
     expect(result).toEqual(messages);
     expect(result.filter((msg: any) => msg.role === "toolResult")).toHaveLength(2);
@@ -308,7 +342,6 @@ describe("injectSummaries for agentic-auto", () => {
     const result = injectSummaries(
       pruneMessages(messages, indexer, "agentic-auto"),
       indexer,
-      "agentic-auto",
     );
 
     expect(result).toEqual(messages.slice(0, -1));
@@ -364,7 +397,6 @@ describe("injectSummaries for agentic-auto", () => {
     const result = injectSummaries(
       pruneMessages(messages, indexer, "agentic-auto"),
       indexer,
-      "agentic-auto",
     );
 
     expect(result).toEqual([messages[0], persisted, messages[1]]);
@@ -380,7 +412,6 @@ describe("injectSummaries for agentic-auto", () => {
     const result = injectSummaries(
       [assistantWithCalls("tc1")],
       indexer,
-      "agentic-auto",
     );
 
     expect(result[1]).toMatchObject({
@@ -409,7 +440,7 @@ describe("injectSummaries for agentic-auto", () => {
       persisted,
     ] as any[];
 
-    const result = injectSummaries(messages, indexer, "agentic-auto");
+    const result = injectSummaries(messages, indexer);
 
     expect(result).toEqual([
       messages[0],
@@ -439,7 +470,7 @@ describe("injectSummaries for agentic-auto", () => {
       { role: "user", content: "tail" },
     ] as any[];
 
-    const result = injectSummaries(messages, indexer, "agentic-auto");
+    const result = injectSummaries(messages, indexer);
     expect(result.filter((m: any) => m.customType === CUSTOM_TYPE_SUMMARY)).toHaveLength(1);
     expect(result[1]).toBe(existing);
   });

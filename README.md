@@ -318,7 +318,7 @@ flushPending()
 
 context (enabled + index non-empty)
   ├─► pruneMessages()            remove safely committed toolResult messages
-  └─► agentic-auto: injectSummaries() normalizes committed summaries near their toolCalls
+  └─► injectSummaries()          normalizes committed summaries near their toolCalls (all modes)
 
 before_agent_start (agentic-auto mode)
   └─► append AGENTIC_AUTO_SYSTEM_PROMPT to system prompt

@@ -17,7 +17,7 @@ describe("agentic-auto summary delivery wiring", () => {
     expect(publishAt).toBeGreaterThan(appendAt);
   });
 
-  test("persists without steer and injects during context build", () => {
+  test("persists without steer and injects during context build for all modes", () => {
     const branch = source.match(
       /if \(delivery === "runtime" && currentConfig\.value\.pruneOn === "agentic-auto"\) \{([\s\S]*?)\} else if \(delivery === "runtime"\)/,
     )?.[1];
@@ -31,8 +31,13 @@ describe("agentic-auto summary delivery wiring", () => {
     expect(source).toContain(
       "pruneMessages(messages, indexer, currentConfig.value.pruneOn)",
     );
-    expect(source).toContain(
-      "injectSummaries(messages, indexer, currentConfig.value.pruneOn)",
-    );
+    expect(source).toContain("injectSummaries(messages, indexer)");
+    // Injection must not be gated to agentic-auto: session-delivered summaries
+    // (agent-message/every-turn) never reach the live context otherwise.
+    const injectBlock = source.match(
+      /Inject committed batch summaries[\s\S]*?injectSummaries\(messages, indexer\)/,
+    )?.[0];
+    expect(injectBlock).toBeDefined();
+    expect(injectBlock).not.toContain("agentic-auto");
   });
 });

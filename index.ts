@@ -559,9 +559,11 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // agentic-auto: inject batch summaries near pruned toolCalls (no steer).
-    if (currentConfig.value.pruneOn === "agentic-auto") {
-      const withSummaries = injectSummaries(messages, indexer, currentConfig.value.pruneOn);
+    // Inject committed batch summaries near pruned toolCalls (all modes).
+    // Session-delivered summaries only live in the session file; without this
+    // the live process never shows them to the LLM.
+    {
+      const withSummaries = injectSummaries(messages, indexer);
       if (withSummaries !== messages) {
         messages = withSummaries;
         changed = true;
