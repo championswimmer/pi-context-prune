@@ -21,8 +21,16 @@ import { pruneProgressText } from "./progress-text.js";
  * @param flushPending  Shared flush function that summarizes + indexes pending batches
  */
 type FlushResult =
-  | { ok: true; reason: "flushed"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
-  | { ok: true; reason: "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+  | {
+      ok: true;
+      reason: "flushed" | "skipped-oversized" | "skipped-below-threshold" | "skipped-mixed";
+      batchCount: number;
+      toolCallCount: number;
+      rawCharCount: number;
+      summaryCharCount: number;
+      belowThresholdBatchCount: number;
+      belowThresholdToolCallCount: number;
+    }
   | { ok: false; reason: string; error?: string };
 
 function sendToolProgress(
@@ -89,12 +97,28 @@ export function registerContextPruneTool(
           };
         }
 
-        if (result.reason === "skipped-oversized") {
+        if (result.reason === "skipped-below-threshold") {
           return {
             content: [
               {
                 type: "text",
-                text: `Context prune skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"}: the summary was ${result.summaryCharCount} chars while the raw tool results were ${result.rawCharCount} chars. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
+                text: `Context prune skipped ${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} (${result.belowThresholdToolCallCount} tool call${result.belowThresholdToolCallCount === 1 ? "" : "s"}): the raw tool results (${result.rawCharCount} chars) were below the configured minRawCharThreshold. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
+              },
+            ],
+            details: result,
+          };
+        }
+
+        if (result.reason === "skipped-oversized" || result.reason === "skipped-mixed") {
+          const belowLine =
+            result.reason === "skipped-mixed" && result.belowThresholdBatchCount > 0
+              ? ` ${result.belowThresholdBatchCount} additional batch${result.belowThresholdBatchCount === 1 ? "" : "es"} were skipped because they were below the minRawCharThreshold.`
+              : "";
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Context prune skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"}: the summary was ${result.summaryCharCount} chars while the raw tool results were ${result.rawCharCount} chars. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.${belowLine}`,
               },
             ],
             details: result,

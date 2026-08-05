@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import type { ContextPruneConfig, PruneOn, SummarizerThinking } from "./types.js";
 import { DEFAULT_CONFIG, PRUNE_ON_MODES, SUMMARIZER_THINKING_LEVELS } from "./types.js";
+import { quantizeRawCharThreshold } from "./prune-threshold.js";
 
 /** Path to the extension's own settings file, independent of any project. */
 export const SETTINGS_PATH = join(homedir(), ".pi", "agent", "context-prune", "settings.json");
@@ -36,6 +37,11 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
         typeof merged.remindUnprunedCount === "boolean"
           ? merged.remindUnprunedCount
           : DEFAULT_CONFIG.remindUnprunedCount,
+      batchingMode: merged.batchingMode === "agent-message" ? "agent-message" : DEFAULT_CONFIG.batchingMode,
+      minRawCharThreshold:
+        typeof merged.minRawCharThreshold === "number" && Number.isFinite(merged.minRawCharThreshold)
+          ? quantizeRawCharThreshold(merged.minRawCharThreshold)
+          : DEFAULT_CONFIG.minRawCharThreshold,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

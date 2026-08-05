@@ -23,7 +23,21 @@ import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminde
 import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, setPruneStatusWidget } from "./src/commands.js";
 import { formatSummaryToolCallRefs, makeSummaryDetails, wrapSummaryForContext } from "./src/summary-refs.js";
-import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, FlushOptions } from "./src/types.js";
+import type {
+  ContextPruneConfig,
+  CapturedBatch,
+  IndexEntryData,
+  PruneFrontier,
+  PruneFrontierOutcome,
+  FlushOptions,
+  FlushResult,
+  SummarizeResult,
+} from "./src/types.js";
+import {
+  batchRawCharCount,
+  isBelowRawCharThreshold,
+  computeFlushOutcome,
+} from "./src/prune-threshold.js";
 import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
@@ -56,10 +70,6 @@ export default function (pi: ExtensionAPI) {
   // Pending batches — accumulated until the prune trigger fires
   const pendingBatches: CapturedBatch[] = [];
   let isFlushing = false;
-
-  type FlushResult =
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
-    | { ok: false; reason: "empty" | "already-flushing" | "summarizer-failed" | "stale-context" | "failed" | "aborted"; error?: string };
 
   type SessionAppender = {
     appendCustomEntry(customType: string, data?: unknown): string;
@@ -199,13 +209,29 @@ export default function (pi: ExtensionAPI) {
         options.onBatchTextProgress?.(index, total, batch, receivedChars);
       };
 
-      // Summarize batches. When onProgress is provided (i.e. /pruner now with the
-      // multi-row overlay) we process sequentially so each row can be checked off
-      // as its LLM call completes. Otherwise all batches run in parallel.
-      let results: (import("./src/types.js").SummarizeResult | null)[];
-      if (options.onProgress) {
-        results = [];
-        for (let i = 0; i < batches.length; i++) {
+      // Pre-filter: skip summarizer LLM calls for batches whose raw tool-output
+      // is below `minRawCharThreshold`. Those batches are still counted as
+      // processed (their raw results stay in context) and the frontier advances
+      // past them so they are not retried forever, but no LLM call is made.
+      const threshold = currentConfig.value.minRawCharThreshold;
+      const eligibleIndices: number[] = [];
+      const belowThresholdFlags: boolean[] = new Array(batches.length).fill(false);
+      for (let i = 0; i < batches.length; i++) {
+        if (isBelowRawCharThreshold(batches[i], threshold)) {
+          belowThresholdFlags[i] = true;
+          options.onProgress?.(i, batches.length, batches[i], "below-threshold");
+        } else {
+          eligibleIndices.push(i);
+        }
+      }
+
+      // Summarize only the eligible batches. When onProgress is provided (i.e.
+      // /pruner now with the multi-row overlay) we process sequentially so each
+      // row can be checked off as its LLM call completes. Otherwise all eligible
+      // batches run in parallel.
+      const results: (SummarizeResult | null)[] = new Array(batches.length).fill(null);
+      if (eligibleIndices.length > 0 && options.onProgress) {
+        for (const i of eligibleIndices) {
           options.onProgress(i, batches.length, batches[i], "start");
           const r = await summarizeBatch(batches[i], currentConfig.value, ctx, {
             signal: options.signal,
@@ -213,15 +239,20 @@ export default function (pi: ExtensionAPI) {
               reportBatchTextProgress(i, batches.length, batches[i], receivedChars);
             },
           });
-          results.push(r);
+          results[i] = r;
           options.onProgress(i, batches.length, batches[i], r ? "done" : "skipped");
         }
-      } else {
-        // Parallel — one LLM call per batch, all in flight simultaneously.
-        results = await summarizeBatches(batches, currentConfig.value, ctx, {
-          onBatchTextProgress: reportBatchTextProgress,
+      } else if (eligibleIndices.length > 0) {
+        // Parallel — one LLM call per eligible batch, all in flight simultaneously.
+        const eligibleBatches = eligibleIndices.map((i) => batches[i]);
+        const eligibleResults = await summarizeBatches(eligibleBatches, currentConfig.value, ctx, {
+          onBatchTextProgress: (index, _total, batch, receivedChars) =>
+            reportBatchTextProgress(eligibleIndices[index], batches.length, batch, receivedChars),
           signal: options.signal,
         });
+        for (let k = 0; k < eligibleResults.length; k++) {
+          results[eligibleIndices[k]] = eligibleResults[k];
+        }
       }
 
       // Process results in order; stop at first null (individual call failure).
@@ -232,23 +263,37 @@ export default function (pi: ExtensionAPI) {
       let totalSummaryCharCount = 0;
       let totalToolCallCount = 0;
       const oversizedBatches: CapturedBatch[] = [];
+      let belowThresholdBatchCount = 0;
+      let belowThresholdToolCallCount = 0;
       let firstFailureIndex = -1;
 
       for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+
+        // Below-threshold batches: skip without a summarizer call.
+        if (belowThresholdFlags[i]) {
+          const raw = batchRawCharCount(batch);
+          totalRawCharCount += raw;
+          totalToolCallCount += batch.toolCalls.length;
+          belowThresholdBatchCount += 1;
+          belowThresholdToolCallCount += batch.toolCalls.length;
+          processedBatches.push(batch);
+          continue;
+        }
+
         const result = results[i];
         if (!result) {
           firstFailureIndex = i;
           break;
         }
 
-        const batch = batches[i];
-        const batchRawCharCount = batch.toolCalls.reduce((s, tc) => s + tc.resultText.length, 0);
+        const batchRawCharCountValue = batchRawCharCount(batch);
         const summaryRefs = indexer.allocateSummaryRefs(batch);
         const summaryText = wrapSummaryForContext(result.summaryText + formatSummaryToolCallRefs(summaryRefs));
-        const shouldSkipOversized = summaryText.length > batchRawCharCount;
+        const shouldSkipOversized = summaryText.length > batchRawCharCountValue;
 
         statsAccum.add(result.usage);
-        totalRawCharCount += batchRawCharCount;
+        totalRawCharCount += batchRawCharCountValue;
         totalSummaryCharCount += summaryText.length;
         totalToolCallCount += batch.toolCalls.length;
 
@@ -301,7 +346,12 @@ export default function (pi: ExtensionAPI) {
       // Advance frontier to the last batch we actually processed.
       const lastBatch = processedBatches[processedBatches.length - 1];
       const lastTC = lastBatch.toolCalls[lastBatch.toolCalls.length - 1];
-      const allOversized = oversizedBatches.length === processedBatches.length;
+      const summarizedBatchCount = processedBatches.length - oversizedBatches.length - belowThresholdBatchCount;
+      const outcome: PruneFrontierOutcome = computeFlushOutcome(
+        summarizedBatchCount,
+        oversizedBatches.length,
+        belowThresholdBatchCount,
+      );
       const frontierSnapshot: PruneFrontier = {
         lastAttemptedToolCallId: lastTC.toolCallId,
         lastAttemptedToolName: lastTC.toolName,
@@ -311,7 +361,7 @@ export default function (pi: ExtensionAPI) {
         attemptedToolCallCount: totalToolCallCount,
         rawCharCount: totalRawCharCount,
         summaryCharCount: totalSummaryCharCount,
-        outcome: allOversized ? "skipped-oversized" : "summarized",
+        outcome,
       };
 
       try {
@@ -334,9 +384,11 @@ export default function (pi: ExtensionAPI) {
 
       setPruneStatusWidget(ctx, currentConfig.value, statsAccum.getStats());
 
-      // Notify about any oversized batches that were skipped
+      // Notify about any oversized batches that were skipped (genuinely wasteful
+      // summaries). Below-threshold skips are expected and intentionally silent;
+      // they are surfaced via the /pruner now widget and the returned result.
       for (const batch of oversizedBatches) {
-        const batchRaw = batch.toolCalls.reduce((s, tc) => s + tc.resultText.length, 0);
+        const batchRaw = batchRawCharCount(batch);
         const batchSummaryLen = results[batches.indexOf(batch)]?.summaryText.length ?? 0;
         safeNotify(
           ctx,
@@ -347,11 +399,13 @@ export default function (pi: ExtensionAPI) {
 
       return {
         ok: true,
-        reason: allOversized ? "skipped-oversized" : "flushed",
+        reason: outcome === "summarized" ? "flushed" : outcome,
         batchCount: processedBatches.length,
         toolCallCount: totalToolCallCount,
         rawCharCount: totalRawCharCount,
         summaryCharCount: totalSummaryCharCount,
+        belowThresholdBatchCount,
+        belowThresholdToolCallCount,
       };
     } catch (err) {
       restoreBatches(batches);

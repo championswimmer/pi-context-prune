@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "check": "for f in index.ts src/*.ts; do node --experimental-strip-types --check \"$f\" || exit 1; done",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
   },
   "keywords": [
     "pi-package"

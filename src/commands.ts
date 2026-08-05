@@ -3,6 +3,7 @@ import {
   type SummarizerStats,
   type CapturedBatch,
   type FlushOptions,
+  type FlushResult,
   PRUNE_ON_MODES,
   BATCHING_MODES,
   STATUS_WIDGET_ID,
@@ -16,6 +17,7 @@ import { Container, Text, SettingsList, type SettingItem } from "@earendil-works
 import { DynamicBorder, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
 import { normalizeSummaryToolCallRefs, unwrapSummaryForDisplay } from "./summary-refs.js";
+import { RAW_CHAR_THRESHOLD_STEP, quantizeRawCharThreshold } from "./prune-threshold.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
 /**
@@ -151,6 +153,18 @@ function batchingModeDescription(mode: ContextPruneConfig["batchingMode"]): stri
   return "Per agent message: merges all assistant turns between two user messages into one summary. Fewer, larger summaries per conversation exchange.";
 }
 
+const MIN_RAW_CHAR_PRESETS = Array.from(
+  { length: 11 },
+  (_, i) => i * RAW_CHAR_THRESHOLD_STEP,
+);
+
+function minRawCharThresholdDescription(threshold: number): string {
+  if (threshold <= 0) {
+    return "Summarize every batch (disabled). Press Enter/Space to cycle in 100-char steps.";
+  }
+  return `Skip batches whose raw tool output is below ${threshold} chars (no summarizer LLM call). Steps in 100-char increments; press Enter/Space to cycle.`;
+}
+
 function remindUnprunedCountDescription(config: ContextPruneConfig): string {
   const base = config.remindUnprunedCount ? "ON" : "OFF";
   if (config.pruneOn === "agentic-auto") {
@@ -205,6 +219,12 @@ Batching mode:
   - agent-message: all assistant turns between two consecutive user messages are merged into one summary.
     Use this when a single user request triggers many back-to-back tool rounds that belong together.
 
+Min raw chars (minRawCharThreshold):
+  Skip the summarizer LLM call for any batch whose raw tool-output is below this many
+  characters (0 = always summarize). The summary of a tiny batch is almost always larger
+  than the raw content, so skipping avoids wasted calls while still advancing the prune
+  frontier past those turns. Cycle presets in /pruner settings.
+
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
   - on-context-tag: good if you already use pi-context save-points. Prunes on explicit milestones via context_checkpoint (legacy: context_tag).
@@ -226,7 +246,7 @@ Settings are saved to ~/.pi/agent/context-prune/settings.json`;
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SPINNER_INTERVAL_MS = 120;
 
-type RowStatus = "pending" | "running" | "done" | "skipped";
+type RowStatus = "pending" | "running" | "done" | "skipped" | "below-threshold";
 
 interface WidgetRow {
   label: string;
@@ -314,6 +334,8 @@ function startPrunerWidget(
               return `✓ ${row.label} · ${count} · ${formatCharProgress(row.receivedChars, row.rawChars)}`;
             } else if (row.status === "skipped") {
               return `⚠ ${row.label} · ${count} · skipped`;
+            } else if (row.status === "below-threshold") {
+              return `○ ${row.label} · ${count} · below threshold`;
             } else {
               return `○ ${row.label} · ${count} · pending`;
             }
@@ -345,10 +367,7 @@ function startPrunerWidget(
 export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
-  flushPending: (ctx: ExtensionCommandContext, options?: FlushOptions) => Promise<
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
-    | { ok: false; reason: string; error?: string }
-  >,
+  flushPending: (ctx: ExtensionCommandContext, options?: FlushOptions) => Promise<FlushResult>,
   capturePendingBatches: (ctx: ExtensionCommandContext) => CapturedBatch[],
   syncToolActivation: () => void,
   getStats: () => SummarizerStats,
@@ -460,6 +479,13 @@ export function registerCommands(
               currentValue: config.batchingMode,
               description: batchingModeDescription(config.batchingMode),
             },
+            {
+              id: "minRawCharThreshold",
+              label: "Min raw chars",
+              values: MIN_RAW_CHAR_PRESETS.map(String),
+              currentValue: String(config.minRawCharThreshold),
+              description: minRawCharThresholdDescription(config.minRawCharThreshold),
+            },
           ];
 
           let settingsList: SettingsList;
@@ -508,6 +534,12 @@ export function registerCommands(
               const batchingItem = items.find((item) => item.id === "batchingMode");
               if (batchingItem) {
                 batchingItem.description = batchingModeDescription(newConfig.batchingMode);
+              }
+            } else if (id === "minRawCharThreshold") {
+              newConfig.minRawCharThreshold = quantizeRawCharThreshold(Number(newValue) || 0);
+              const minRawItem = items.find((item) => item.id === "minRawCharThreshold");
+              if (minRawItem) {
+                minRawItem.description = minRawCharThresholdDescription(newConfig.minRawCharThreshold);
               }
             }
             currentConfig.value = newConfig;
@@ -573,7 +605,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  min raw:  ${cfg.minRawCharThreshold > 0 ? `${cfg.minRawCharThreshold} chars` : "off"}\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }
@@ -730,6 +762,8 @@ export function registerCommands(
                 updateRow(index, "running", 0);
               } else if (stage === "done") {
                 updateRow(index, "done");
+              } else if (stage === "below-threshold") {
+                updateRow(index, "below-threshold");
               } else {
                 updateRow(index, "skipped");
               }
@@ -749,11 +783,24 @@ export function registerCommands(
             break;
           }
 
-          if (result.reason === "skipped-oversized") {
+          if (result.reason === "skipped-below-threshold") {
             ctx.ui.notify(
-              `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
-              "warning"
+              `pruner: skipped ${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} (${result.belowThresholdToolCallCount} tool call${result.belowThresholdToolCallCount === 1 ? "" : "s"}, ${result.rawCharCount} raw chars) — below minRawCharThreshold (${currentConfig.value.minRawCharThreshold}); frontier advanced past this range`,
+              "info"
             );
+            break;
+          }
+
+          if (result.reason === "skipped-oversized" || result.reason === "skipped-mixed") {
+            const oversizeLine = `pruner: skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`;
+            if (result.reason === "skipped-mixed" && result.belowThresholdBatchCount > 0) {
+              ctx.ui.notify(
+                `${oversizeLine}\n(${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} also skipped — below minRawCharThreshold)`,
+                "warning"
+              );
+            } else {
+              ctx.ui.notify(oversizeLine, "warning");
+            }
             break;
           }
 
