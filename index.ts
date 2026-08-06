@@ -262,7 +262,7 @@ export default function (pi: ExtensionAPI) {
       let totalRawCharCount = 0;
       let totalSummaryCharCount = 0;
       let totalToolCallCount = 0;
-      const oversizedBatches: CapturedBatch[] = [];
+      const oversizedBatches: { batch: CapturedBatch; summaryLen: number; contentLen: number; rawLen: number }[] = [];
       let belowThresholdBatchCount = 0;
       let belowThresholdToolCallCount = 0;
       let firstFailureIndex = -1;
@@ -317,7 +317,12 @@ export default function (pi: ExtensionAPI) {
               persistBatchIndex(batch, appendEntry);
             }
           } else {
-            oversizedBatches.push(batch);
+            oversizedBatches.push({
+              batch,
+              summaryLen: summaryText.length,
+              contentLen: result.summaryText.length,
+              rawLen: batchRawCharCountValue,
+            });
           }
         } catch (err) {
           // Persistence error mid-loop: stop here, restore this and remaining batches.
@@ -387,12 +392,12 @@ export default function (pi: ExtensionAPI) {
       // Notify about any oversized batches that were skipped (genuinely wasteful
       // summaries). Below-threshold skips are expected and intentionally silent;
       // they are surfaced via the /pruner now widget and the returned result.
-      for (const batch of oversizedBatches) {
-        const batchRaw = batchRawCharCount(batch);
-        const batchSummaryLen = results[batches.indexOf(batch)]?.summaryText.length ?? 0;
+      for (const { batch, summaryLen, contentLen, rawLen } of oversizedBatches) {
+        const overhead = summaryLen - contentLen;
+        const overheadNote = overhead > 0 ? ` (${contentLen} content + ${overhead} wrapper/refs)` : "";
         safeNotify(
           ctx,
-          `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary was ${batchSummaryLen} chars vs ${batchRaw} raw chars; frontier advanced past this range`,
+          `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary block was ${summaryLen} chars${overheadNote} vs ${rawLen} raw chars; frontier advanced past this range`,
           "warning"
         );
       }
