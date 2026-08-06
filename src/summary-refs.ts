@@ -53,10 +53,7 @@ export function normalizeSummaryToolCallRefs(details: unknown): SummaryToolCallR
 
 export function formatSummaryToolCallRefs(refs: SummaryToolCallRef[]): string {
   const refList = refs.map((ref) => `\`${ref.shortId}\``).join(", ");
-  return (
-    `\n\n---\n**Summarized tool refs**: ${refList}\n` +
-    `Use \`context_tree_query\` with these refs to retrieve the original full outputs.`
-  );
+  return `\n\n**Refs**: ${refList} (context_tree_query)`;
 }
 
 export function wrapSummaryForContext(summaryText: string): string {

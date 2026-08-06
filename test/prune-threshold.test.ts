@@ -6,6 +6,7 @@ import {
   computeFlushOutcome,
   quantizeRawCharThreshold,
 } from "../src/prune-threshold.ts";
+import { countTokens } from "../src/tokens.ts";
 import type { CapturedBatch } from "../src/types.ts";
 
 function makeBatch(resultTexts: string[]): CapturedBatch {
@@ -72,4 +73,17 @@ test("quantizeRawCharThreshold snaps to the nearest 100-char step", () => {
   assert.equal(quantizeRawCharThreshold(-5), 0);
   assert.equal(quantizeRawCharThreshold(NaN), 0);
   assert.equal(quantizeRawCharThreshold(Infinity), 0);
+});
+
+test("countTokens returns a positive estimate (real tokenizer or chars/4 fallback)", () => {
+  const prose = "Use `context_tree_query` with these refs to retrieve the original full outputs.";
+  const tokens = countTokens(prose);
+  assert.ok(Number.isFinite(tokens) && tokens > 0, `got ${tokens}`);
+  // fallback ceiling is chars/4; real tokenizer is close to that for prose, so
+  // sanity-bound the result.
+  assert.ok(tokens <= Math.ceil(prose.length / 3) + 8, `unexpectedly high: ${tokens}`);
+  // code tokenizes denser than prose per char
+  const code = "{ \"path\": \"/a/b/c.ts\", \"line\": 42 }";
+  assert.ok(countTokens(code) > 0);
+  assert.equal(countTokens(""), 0);
 });

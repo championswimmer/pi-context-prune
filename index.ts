@@ -38,6 +38,7 @@ import {
   isBelowRawCharThreshold,
   computeFlushOutcome,
 } from "./src/prune-threshold.js";
+import { countTokens } from "./src/tokens.js";
 import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
@@ -262,7 +263,7 @@ export default function (pi: ExtensionAPI) {
       let totalRawCharCount = 0;
       let totalSummaryCharCount = 0;
       let totalToolCallCount = 0;
-      const oversizedBatches: { batch: CapturedBatch; summaryLen: number; contentLen: number; rawLen: number }[] = [];
+      const oversizedBatches: { batch: CapturedBatch; summaryTokens: number; contentTokens: number; rawTokens: number }[] = [];
       let belowThresholdBatchCount = 0;
       let belowThresholdToolCallCount = 0;
       let firstFailureIndex = -1;
@@ -288,9 +289,11 @@ export default function (pi: ExtensionAPI) {
         }
 
         const batchRawCharCountValue = batchRawCharCount(batch);
+        const batchRawTokenCount = batch.toolCalls.reduce((sum, tc) => sum + countTokens(tc.resultText), 0);
         const summaryRefs = indexer.allocateSummaryRefs(batch);
         const summaryText = wrapSummaryForContext(result.summaryText + formatSummaryToolCallRefs(summaryRefs));
-        const shouldSkipOversized = summaryText.length > batchRawCharCountValue;
+        const summaryTokenCount = countTokens(summaryText);
+        const shouldSkipOversized = summaryTokenCount > batchRawTokenCount;
 
         statsAccum.add(result.usage);
         totalRawCharCount += batchRawCharCountValue;
@@ -319,9 +322,9 @@ export default function (pi: ExtensionAPI) {
           } else {
             oversizedBatches.push({
               batch,
-              summaryLen: summaryText.length,
-              contentLen: result.summaryText.length,
-              rawLen: batchRawCharCountValue,
+              summaryTokens: summaryTokenCount,
+              contentTokens: countTokens(result.summaryText),
+              rawTokens: batchRawTokenCount,
             });
           }
         } catch (err) {
@@ -392,12 +395,12 @@ export default function (pi: ExtensionAPI) {
       // Notify about any oversized batches that were skipped (genuinely wasteful
       // summaries). Below-threshold skips are expected and intentionally silent;
       // they are surfaced via the /pruner now widget and the returned result.
-      for (const { batch, summaryLen, contentLen, rawLen } of oversizedBatches) {
-        const overhead = summaryLen - contentLen;
-        const overheadNote = overhead > 0 ? ` (${contentLen} content + ${overhead} wrapper/refs)` : "";
+      for (const { batch, summaryTokens, contentTokens, rawTokens } of oversizedBatches) {
+        const overhead = summaryTokens - contentTokens;
+        const overheadNote = overhead > 0 ? ` (${contentTokens} content + ${overhead} wrapper/refs)` : "";
         safeNotify(
           ctx,
-          `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary block was ${summaryLen} chars${overheadNote} vs ${rawLen} raw chars; frontier advanced past this range`,
+          `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary block was ${summaryTokens} tokens${overheadNote} vs ${rawTokens} raw tokens; frontier advanced past this range`,
           "warning"
         );
       }
