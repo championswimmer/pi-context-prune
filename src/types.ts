@@ -125,7 +125,7 @@ export type PruneOn = "every-turn" | "on-context-tag" | "on-demand" | "agent-mes
 export type BatchingMode = "turn" | "agent-message";
 
 /** Thinking/reasoning level requested for summarizer LLM calls. */
-export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Choices for the summarizer thinking setting (used by commands and settings overlay) */
 export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: string }[] = [
@@ -136,6 +136,7 @@ export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: str
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "xhigh", label: "XHigh" },
+  { value: "max", label: "Max" },
 ];
 
 /** Choices for the batching-mode setting (used by commands and settings overlay) */

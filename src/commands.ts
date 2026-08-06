@@ -18,6 +18,7 @@ import { DynamicBorder, getSettingsListTheme } from "@earendil-works/pi-coding-a
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
 import { normalizeSummaryToolCallRefs, unwrapSummaryForDisplay } from "./summary-refs.js";
 import { RAW_CHAR_THRESHOLD_STEP, quantizeRawCharThreshold } from "./prune-threshold.js";
+import { getSupportedThinkingLevels } from "./summarizer.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
 /**
@@ -463,7 +464,7 @@ export function registerCommands(
             {
               id: "summarizerThinking",
               label: "Summarizer thinking",
-              values: SUMMARIZER_THINKING_LEVELS.map((level) => level.value),
+              values: getSupportedThinkingLevels(currentConfig.value, ctx).map((l) => l.value),
               currentValue: config.summarizerThinking,
               description: summarizerThinkingDescription(config.summarizerThinking),
             },
