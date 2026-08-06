@@ -133,7 +133,7 @@ export function buildPruneTree(
       0,
     );
 
-    const header = `[pruner] Turn ${turnIndex} summary (${children.length} tool${children.length === 1 ? "" : "s"} · ${formatChars(summaryChars)} chars · original ${formatChars(totalOriginalChars)})`;
+    const header = `[CoACT] Turn ${turnIndex} summary (${children.length} tool${children.length === 1 ? "" : "s"} · ${formatChars(summaryChars)} chars · original ${formatChars(totalOriginalChars)})`;
     const label = timestamp ? `${header} · ${timestamp}` : header;
 
     roots.push({

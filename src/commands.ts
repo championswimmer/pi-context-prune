@@ -837,7 +837,7 @@ export function registerCommands(
     };
     const turnIndex = details?.turnIndex ?? "?";
     const toolCount = normalizeSummaryToolCallRefs(details).length;
-    const header = theme.fg("accent", `[pruner] Turn ${turnIndex} summary (${toolCount} tool${toolCount === 1 ? "" : "s"})`);
+    const header = theme.fg("accent", `[CoACT] Turn ${turnIndex} summary (${toolCount} tool${toolCount === 1 ? "" : "s"})`);
     if (expanded) {
       return new Text(header + "\n" + unwrapSummaryForDisplay(message.content), 0, 0);
     }

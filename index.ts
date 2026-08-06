@@ -474,7 +474,7 @@ export default function (pi: ExtensionAPI) {
     syncToolActivation();
 
     ctx.ui.notify(
-      `pruner loaded — pruning ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${currentConfig.value.summarizerModel}`,
+      `CoACT loaded — compression ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${currentConfig.value.summarizerModel}`,
       "info"
     );
   });
