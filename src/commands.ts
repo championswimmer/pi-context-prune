@@ -568,7 +568,7 @@ export function registerCommands(
           await ctx.ui.custom(
             (_tui, _theme, _keybindings, done) => {
               closeSettingsOverlay = () => done(undefined);
-              return new SettingsOverlay("pruner settings", settingsList);
+              return new SettingsOverlay("CoACT settings", settingsList);
             },
             {
               overlay: true,
