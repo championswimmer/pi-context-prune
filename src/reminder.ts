@@ -4,7 +4,7 @@
  * Used only in `agentic-auto` mode. Before each LLM call, computes how many
  * tool-call results in the current message list have NOT yet been summarized
  * (i.e. assistant `toolCall` blocks whose `toolCallId` is not in the indexer)
- * and appends a tiny `<pruner-note>` line to the last `ToolResultMessage`'s
+ * and appends a tiny `<coact-note>` line to the last `ToolResultMessage`'s
  * content. The note nudges the model to call the `context_prune` tool at a
  * sensible cadence.
  *
@@ -25,8 +25,8 @@
 
 import type { ToolCallIndexer } from "./indexer.js";
 
-const PRUNER_NOTE_OPEN = "<pruner-note>";
-const PRUNER_NOTE_CLOSE = "</pruner-note>";
+const PRUNER_NOTE_OPEN = "<coact-note>";
+const PRUNER_NOTE_CLOSE = "</coact-note>";
 
 /**
  * Counts tool-call results currently in `messages` that have NOT yet been
@@ -54,11 +54,11 @@ export function countUnprunedToolCalls(messages: any[], indexer: ToolCallIndexer
  * the model can clearly distinguish it from real tool output.
  */
 export function buildReminderText(count: number): string {
-  return `${PRUNER_NOTE_OPEN}${count} unpruned tool call result(s) currently in context. Consider calling context_prune after a logical batch of 8–12 related tool calls.${PRUNER_NOTE_CLOSE}`;
+  return `${PRUNER_NOTE_OPEN}${count} uncompressed tool-call result(s) currently in context. Consider calling context_prune after a logical batch of 8–12 related tool calls.${PRUNER_NOTE_CLOSE}`;
 }
 
 /**
- * Returns a shallow-cloned message list with a `<pruner-note>` text block
+ * Returns a shallow-cloned message list with a `<coact-note>` text block
  * appended to the last `ToolResultMessage` content. If `count <= 0` or the
  * last message is not a `ToolResultMessage`, returns `messages` unchanged.
  *

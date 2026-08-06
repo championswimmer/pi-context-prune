@@ -60,7 +60,7 @@ export const CUSTOM_TYPE_FRONTIER = "context-prune-frontier";
 export const STATUS_WIDGET_ID = "context-prune";
 
 /**
- * Widget ID for the live /pruner now progress panel shown above the editor.
+ * Widget ID for the live /CoACT now progress panel shown above the editor.
  */
 export const PROGRESS_WIDGET_ID = "context-prune-progress";
 
@@ -108,7 +108,7 @@ What happens when you call context_prune:
  * - "every-turn"     : after every assistant turn that calls tools
  * - "on-context-tag" : batches up turns and flushes when the model calls context_checkpoint
  *                       (legacy pi-context name: context_tag)
- * - "on-demand"      : only when the user runs /pruner now
+ * - "on-demand"      : only when the user runs /CoACT now
  * - "agent-message"  : batches up turns and flushes when the agent sends a final text response
  *                       (a turn with no tool calls), or when the agent loop ends (default)
  * - "agentic-auto"   : the LLM agent decides when to prune by calling the context_prune tool;
@@ -336,7 +336,7 @@ export interface PruneFrontier {
 
 /**
  * Progress callback invoked by `flushPending` when processing batches sequentially.
- * Only fired when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
+ * Only fired when the caller passes `onProgress` in `FlushOptions` (i.e. `/CoACT now`).
  */
 export type ProgressCallback = (
   index: number,
@@ -377,12 +377,12 @@ export interface FlushOptions {
   /**
    * When provided, batches are processed sequentially (one LLM call each) instead of
    * in parallel, and this callback is invoked before/after each batch. Used by
-   * `/pruner now` to drive the multi-row progress overlay.
+   * `/CoACT now` to drive the multi-row progress overlay.
    */
   onProgress?: ProgressCallback;
   /**
    * When provided, receives the number of summary characters streamed so far for
-   * the currently-running batch. Used by `/pruner now` to show live progress.
+   * the currently-running batch. Used by `/CoACT now` to show live progress.
    */
   onBatchTextProgress?: BatchTextProgressCallback;
   /**

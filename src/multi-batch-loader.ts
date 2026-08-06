@@ -1,5 +1,5 @@
 /**
- * MultiBatchLoaderOverlay — a TUI overlay for /pruner now that shows one
+ * MultiBatchLoaderOverlay — a TUI overlay for /CoACT now that shows one
  * animated spinner row per pending batch, updates it with streamed summary
  * character counts while running, and checks each row off as the
  * corresponding LLM summarization call completes.

@@ -8,7 +8,7 @@
  *   indexer      — maintain Map<toolCallId, ToolCallRecord> + session persistence
  *   pruner       — filter context event messages
  *   query-tool   — register context_tree_query tool
- *   commands     — register /pruner command + message renderer
+ *   commands     — register /CoACT command + message renderer
  *
  * Usage:  pi -e .
  */
@@ -54,7 +54,7 @@ import { registerContextPruneTool } from "./src/context-prune-tool.js";
 import { PruneFrontierTracker } from "./src/frontier.js";
 
 export default function (pi: ExtensionAPI) {
-  // Shared mutable config reference — updated by /pruner commands
+  // Shared mutable config reference — updated by /CoACT commands
   const currentConfig: { value: ContextPruneConfig } = {
     value: { ...DEFAULT_CONFIG, pruneOn: "every-turn" },
   };
@@ -144,7 +144,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   // ── Helper: capture + trim + group pending batches (no LLM work) ──────────
-  // Exposed to commands.ts via registerCommands so /pruner now can preview the
+  // Exposed to commands.ts via registerCommands so /CoACT now can preview the
   // queue before opening the multi-row progress overlay.
   const capturePendingBatches = (ctx: any): CapturedBatch[] => {
     let batches: CapturedBatch[] = [];
@@ -227,7 +227,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Summarize only the eligible batches. When onProgress is provided (i.e.
-      // /pruner now with the multi-row overlay) we process sequentially so each
+      // /CoACT now with the multi-row overlay) we process sequentially so each
       // row can be checked off as its LLM call completes. Otherwise all eligible
       // batches run in parallel.
       const results: (SummarizeResult | null)[] = new Array(batches.length).fill(null);
@@ -394,13 +394,13 @@ export default function (pi: ExtensionAPI) {
 
       // Notify about any oversized batches that were skipped (genuinely wasteful
       // summaries). Below-threshold skips are expected and intentionally silent;
-      // they are surfaced via the /pruner now widget and the returned result.
+      // they are surfaced via the /CoACT now widget and the returned result.
       for (const { batch, summaryTokens, contentTokens, rawTokens } of oversizedBatches) {
         const overhead = summaryTokens - contentTokens;
         const overheadNote = overhead > 0 ? ` (${contentTokens} content + ${overhead} wrapper/refs)` : "";
         safeNotify(
           ctx,
-          `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary block was ${summaryTokens} tokens${overheadNote} vs ${rawTokens} raw tokens; frontier advanced past this range`,
+          `CoACT: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary block was ${summaryTokens} tokens${overheadNote} vs ${rawTokens} raw tokens; frontier advanced past this range`,
           "warning"
         );
       }
@@ -426,7 +426,7 @@ export default function (pi: ExtensionAPI) {
       if (isStaleContextError(err)) {
         return { ok: false, reason: "stale-context", error: errorMessage(err) };
       }
-      safeNotify(ctx, `pruner: summarization failed: ${errorMessage(err)}`, "error");
+      safeNotify(ctx, `CoACT: summarization failed: ${errorMessage(err)}`, "error");
       return { ok: false, reason: "failed", error: errorMessage(err) };
     } finally {
       isFlushing = false;
@@ -535,14 +535,14 @@ export default function (pi: ExtensionAPI) {
           trigger = "agent calling context_prune";
           break;
         default:
-          trigger = "/pruner now";
+          trigger = "/CoACT now";
           break;
       }
       if (currentConfig.value.showPruneStatusLine) {
         setPruneStatusWidget(ctx, currentConfig.value, `prune: ${n} pending`);
         safeNotify(
           ctx,
-          `pruner: ${n} turn${n === 1 ? "" : "s"} queued — will summarize on ${trigger}`,
+          `CoACT: ${n} turn${n === 1 ? "" : "s"} queued — will summarize on ${trigger}`,
           "info"
         );
       }
@@ -594,8 +594,8 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // Append a small `<pruner-note>` to the last toolResult telling the model
-    // how many unpruned tool calls are sitting in context. Only active in
+    // Append a small `<coact-note>` to the last toolResult telling the model
+    // how many uncompressed tool calls are sitting in context. Only active in
     // agentic-auto mode (where the LLM itself decides when to call
     // context_prune) and only when the user has the reminder enabled.
     if (
@@ -632,6 +632,6 @@ export default function (pi: ExtensionAPI) {
   // ── Register context_prune tool (always registered, activated only in agentic-auto mode) ──
   registerContextPruneTool(pi, (ctx, options) => flushPending(ctx, { delivery: "runtime", ...options }));
 
-  // ── Register /pruner command + summary message renderer ────────────
+  // ── Register /CoACT command + summary message renderer ────────────
   registerCommands(pi, currentConfig, flushPending, capturePendingBatches, syncToolActivation, () => statsAccum.getStats(), indexer);
 }

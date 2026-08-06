@@ -45,7 +45,7 @@ export function resolveModel(config: ContextPruneConfig, ctx: ExtensionContext):
   const slashIndex = config.summarizerModel.indexOf("/");
   if (slashIndex === -1) {
     ctx.ui.notify(
-      `pruner: invalid summarizerModel "${config.summarizerModel}", expected "provider/model-id". Falling back to default model.`,
+      `CoACT: invalid summarizerModel "${config.summarizerModel}", expected "provider/model-id". Falling back to default model.`,
       "warning"
     );
     return ctx.model;
@@ -57,7 +57,7 @@ export function resolveModel(config: ContextPruneConfig, ctx: ExtensionContext):
   const found = ctx.modelRegistry.find(provider, modelId);
   if (!found) {
     ctx.ui.notify(
-      `pruner: model "${config.summarizerModel}" not found in registry. Falling back to default model.`,
+      `CoACT: model "${config.summarizerModel}" not found in registry. Falling back to default model.`,
       "warning"
     );
     return ctx.model;
@@ -91,7 +91,7 @@ export async function summarizeBatch(
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
     if (!auth.ok) {
       const authMessage = "error" in auth ? auth.error : "authentication failed";
-      ctx.ui.notify(`pruner: summarization failed: ${authMessage}`, "error");
+      ctx.ui.notify(`CoACT: summarization failed: ${authMessage}`, "error");
       return null;
     }
 
@@ -163,7 +163,7 @@ export async function summarizeBatch(
     // and return { ok: false, reason: "aborted" } without showing a UI error.
     if (options.signal?.aborted) throw err;
     ctx.ui.notify(
-      `pruner: summarization failed: ${err.message}`,
+      `CoACT: summarization failed: ${err.message}`,
       "error"
     );
     return null;

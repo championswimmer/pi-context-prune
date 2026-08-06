@@ -4,7 +4,7 @@ import { formatCharProgress } from "./stats.js";
 export type PruneProgressPhase = "running" | "done" | "skipped";
 
 /**
- * Shared formatter for live prune progress, used by /pruner now and the
+ * Shared formatter for live prune progress, used by /CoACT now and the
  * context_prune tool so both paths show the exact same text.
  */
 export function pruneProgressText(
