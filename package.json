@@ -1,28 +1,41 @@
 {
-  "name": "pi-context-prune",
-  "version": "1.2.0",
-  "description": "Pi extension package for pruning future context while preserving original tool-call history.",
+  "name": "pi-coact",
+  "version": "1.3.0",
+  "description": "CoACT — action-preserving observation compression for Pi coding agents (forked from pi-context-prune).",
   "type": "module",
   "scripts": {
     "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "check": "for f in index.ts src/*.ts; do node --experimental-strip-types --check \"$f\" || exit 1; done",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
   },
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "context",
+    "compression",
+    "coact"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/championswimmer/pi-context-prune.git"
+    "url": "git+https://github.com/pinion05/PI-CoACT.git"
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/championswimmer/pi-context-prune/issues"
+    "url": "https://github.com/pinion05/PI-CoACT/issues"
   },
-  "homepage": "https://github.com/championswimmer/pi-context-prune#readme",
+  "homepage": "https://github.com/pinion05/PI-CoACT#readme",
+  "files": [
+    "index.ts",
+    "src/",
+    "test/",
+    "*.md"
+  ],
   "pi": {
     "extensions": [
       "./index.ts"
     ]
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

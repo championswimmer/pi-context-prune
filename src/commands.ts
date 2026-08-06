@@ -3,6 +3,7 @@ import {
   type SummarizerStats,
   type CapturedBatch,
   type FlushOptions,
+  type FlushResult,
   PRUNE_ON_MODES,
   BATCHING_MODES,
   STATUS_WIDGET_ID,
@@ -16,6 +17,8 @@ import { Container, Text, SettingsList, type SettingItem } from "@earendil-works
 import { DynamicBorder, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
 import { normalizeSummaryToolCallRefs, unwrapSummaryForDisplay } from "./summary-refs.js";
+import { RAW_TOKEN_THRESHOLD_STEP, quantizeRawTokenThreshold } from "./prune-threshold.js";
+import { getSupportedThinkingLevels } from "./summarizer.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
 /**
@@ -48,7 +51,7 @@ class SettingsOverlay extends Container {
 
 export function pruneStatusText(config: ContextPruneConfig, stats?: SummarizerStats): string {
   const mode = PRUNE_ON_MODES.find((m) => m.value === config.pruneOn)?.label ?? config.pruneOn;
-  let text = `prune: ${config.enabled ? "ON" : "OFF"} (${mode})`;
+  let text = `CoACT: ${config.enabled ? "ON" : "OFF"} (${mode})`;
   if (stats && stats.callCount > 0) {
     text += ` │ ↑${formatTokens(stats.totalInputTokens)} ↓${formatTokens(stats.totalOutputTokens)} ${formatCost(stats.totalCost)}`;
   }
@@ -71,15 +74,15 @@ export function setPruneStatusWidget(
 
 const SUBCOMMANDS = [
   { value: "settings", label: "settings  — interactive settings overlay" },
-  { value: "on",       label: "on        — enable context pruning" },
-  { value: "off",      label: "off       — disable context pruning" },
-  { value: "status",  label: "status    — show status, model, thinking, prune trigger, and status line" },
+  { value: "on",       label: "on        — enable CoACT" },
+  { value: "off",      label: "off       — disable CoACT" },
+  { value: "status",  label: "status    — show status, model, thinking, trigger, and status line" },
   { value: "model",   label: "model     — show or set the summarizer model" },
   { value: "thinking", label: "thinking  — show or set the summarizer thinking level" },
-  { value: "prune-on", label: "prune-on  — show or set the trigger mode" },
+  { value: "trigger",  label: "trigger   — show or set the compression trigger mode" },
   { value: "batching", label: "batching  — show or set the batching mode (turn / agent-message)" },
   { value: "stats",   label: "stats     — show cumulative summarizer token/cost stats" },
-  { value: "tree",    label: "tree      — browse pruned tool calls in a foldable tree" },
+  { value: "tree",    label: "tree      — browse compressed tool calls in a foldable tree" },
   { value: "now",     label: "now       — flush pending tool calls immediately (widget progress)" },
   { value: "help",    label: "help      — show this help" },
 ] as const;
@@ -87,16 +90,17 @@ const SUBCOMMANDS = [
 // ── Help text ───────────────────────────────────────────────────────────────
 
 const PRUNE_MODE_GUIDANCE: Record<ContextPruneConfig["pruneOn"], string> = {
-  "every-turn": "Debugging only. Prunes after every tool turn, which is easiest to inspect but churns provider prompt caches the most.",
+  "every-turn": "Debugging only. Compresses after every tool turn, which is easiest to inspect but churns provider prompt caches the most.",
   "on-context-tag": "Good for milestone-based workflows. Flushes when context_checkpoint (legacy: context_tag) is called; requires the pi-context extension for automatic triggering.",
-  "on-demand": "Maximum manual control. Nothing is pruned until you run /pruner now, so cache invalidation happens only when you choose.",
-  "agent-message": "Recommended default. Batches tool work and prunes once after the final text reply, giving the best balance of automation, context savings, and cache stability.",
+  "on-demand": "Maximum manual control. Nothing is compressed until you run /CoACT now, so cache invalidation happens only when you choose.",
+  "agent-message": "Recommended default. Batches tool work and compresses once after the final text reply, giving the best balance of automation, context savings, and cache stability.",
   "agentic-auto": "Useful for longer autonomous runs. Lets the model call context_prune, but depends on the model using it sparingly.",
 };
 
 function pruneModeGuidance(mode: ContextPruneConfig["pruneOn"]): string {
   return PRUNE_MODE_GUIDANCE[mode] ?? "Controls when summarized tool outputs replace raw tool results in future context.";
 }
+
 
 function pruneModeLabel(mode: ContextPruneConfig["pruneOn"]): string {
   return PRUNE_ON_MODES.find((entry) => entry.value === mode)?.label ?? mode;
@@ -137,7 +141,7 @@ function parseModelAndThinkingArg(
 }
 
 function pruneTriggerDescription(mode: ContextPruneConfig["pruneOn"]): string {
-  return `When to summarize tool outputs. Current mode: ${pruneModeLabel(mode)} (${mode}) — ${pruneModeGuidance(mode)} Press Enter/Space to cycle through modes.`;
+  return `When to compress tool outputs. Current mode: ${pruneModeLabel(mode)} (${mode}) — ${pruneModeGuidance(mode)} Press Enter/Space to cycle through modes.`;
 }
 
 function batchingModeLabel(mode: ContextPruneConfig["batchingMode"]): string {
@@ -151,69 +155,85 @@ function batchingModeDescription(mode: ContextPruneConfig["batchingMode"]): stri
   return "Per agent message: merges all assistant turns between two user messages into one summary. Fewer, larger summaries per conversation exchange.";
 }
 
+const MIN_RAW_TOKEN_PRESETS = [0, 50, 100, 200, 300, 500, 1000];
+
+function minRawTokenThresholdDescription(threshold: number): string {
+  if (threshold <= 0) {
+    return "Summarize every batch (disabled). Press Enter/Space to cycle in 50-token steps.";
+  }
+  return `Skip batches whose raw tool output is below ${threshold} tokens (no summarizer LLM call). Steps in 50-token increments; press Enter/Space to cycle.`;
+}
+
 function remindUnprunedCountDescription(config: ContextPruneConfig): string {
   const base = config.remindUnprunedCount ? "ON" : "OFF";
   if (config.pruneOn === "agentic-auto") {
-    return `Inject a small <pruner-note> reminder before each LLM call telling the model how many unpruned tool calls are in context. Currently ${base}. Only active in agentic-auto mode.`;
+    return `Inject a small <coact-note> reminder before each LLM call telling the model how many uncompressed tool calls are in context. Currently ${base}. Only active in agentic-auto mode.`;
   }
-  return `Inject a small <pruner-note> reminder before each LLM call. Currently ${base}, but has NO effect in '${config.pruneOn}' mode — only honored when prune trigger is 'agentic-auto'.`;
+  return `Inject a small <coact-note> reminder before each LLM call. Currently ${base}, but has NO effect in '${config.pruneOn}' mode — only honored when the trigger is 'agentic-auto'.`;
 }
 
 function pruneStatusLineDescription(config: ContextPruneConfig): string {
   const base = config.showPruneStatusLine ? "ON" : "OFF";
   if (config.showPruneStatusLine) {
-    return `Show the prune footer status line and queued turn notifications. Currently ${base}.`;
+    return `Show the CoACT footer status line and queued turn notifications. Currently ${base}.`;
   }
-  return `Hide the prune footer status line and queued turn notifications. Currently ${base}.`;
+  return `Hide the CoACT footer status line and queued turn notifications. Currently ${base}.`;
 }
 
-const HELP_TEXT = `pruner — automatically summarizes tool-call outputs to keep context lean.
+const HELP_TEXT = `CoACT — action-preserving observation compression for coding agents.
+Automatically summarizes tool-call outputs to keep context lean.
 
 Usage:
-  /pruner settings                         Interactive settings overlay
-  /pruner on                               Enable context pruning
-  /pruner off                              Disable context pruning
-  /pruner status                           Show status, model, prune trigger, batching mode, and stats
-  /pruner model                            Show the current summarizer model
-  /pruner model <id>                       Set summarizer model (e.g. anthropic/claude-haiku-3-5)
-  /pruner model <id>:<thinking>            Set summarizer model and thinking together (e.g. openai/gpt-5-mini:low)
-  /pruner thinking                         Show the current summarizer thinking level
-  /pruner thinking <level>                 Set summarizer thinking: default, off, minimal, low, medium, high, xhigh
-  /pruner prune-on                         Show or interactively pick the trigger
-  /pruner prune-on every-turn              Summarize after every tool-calling turn (debugging only; worst for prompt cache churn)
-  /pruner prune-on on-context-tag          Summarize when context_checkpoint (legacy: context_tag) is called (requires pi-context extension)
-  /pruner prune-on on-demand               Only summarize when /pruner now runs
-  /pruner prune-on agent-message           Summarize after the agent's final text reply (default; safest for cache stability)
-  /pruner prune-on agentic-auto            LLM decides when to prune via context_prune tool
-  /pruner batching                         Show or interactively pick the batching granularity
-  /pruner batching turn                    One summary per assistant turn (default)
-  /pruner batching agent-message           One summary per user→final-agent-message span (merges all turns in a span)
-  /pruner stats                            Show cumulative summarizer token/cost stats
-  /pruner tree                             Browse pruned tool calls in a foldable tree (Ctrl-O opens selected summary)
-  /pruner now                              Flush pending tool calls immediately (shows live footer progress)
-  /pruner help                             Show this help
+  /CoACT settings                         Interactive settings overlay
+  /CoACT on                               Enable CoACT
+  /CoACT off                              Disable CoACT
+  /CoACT status                           Show status, model, trigger, batching mode, and stats
+  /CoACT model                            Show the current summarizer model
+  /CoACT model <id>                       Set summarizer model (e.g. anthropic/claude-haiku-3-5)
+  /CoACT model <id>:<thinking>            Set summarizer model and thinking together (e.g. openai/gpt-5-mini:low)
+  /CoACT thinking                         Show the current summarizer thinking level
+  /CoACT thinking <level>                 Set summarizer thinking: default, off, minimal, low, medium, high, xhigh
+  /CoACT trigger                          Show or interactively pick the trigger mode
+  /CoACT trigger every-turn               Summarize after every tool-calling turn (debugging only; worst for prompt cache churn)
+  /CoACT trigger on-context-tag           Summarize when context_checkpoint (legacy: context_tag) is called (requires pi-context extension)
+  /CoACT trigger on-demand                Only summarize when /CoACT now runs
+  /CoACT trigger agent-message            Summarize after the agent's final text reply (default; safest for cache stability)
+  /CoACT trigger agentic-auto             LLM decides when to compress via context_prune tool
+  /CoACT batching                         Show or interactively pick the batching granularity
+  /CoACT batching turn                    One summary per assistant turn (default)
+  /CoACT batching agent-message           One summary per user→final-agent-message span (merges all turns in a span)
+  /CoACT stats                            Show cumulative summarizer token/cost stats
+  /CoACT tree                             Browse compressed tool calls in a foldable tree (Ctrl-O opens selected summary)
+  /CoACT now                              Flush pending tool calls immediately (shows live footer progress)
+  /CoACT help                             Show this help
 
 Agentic-auto reminder:
-  When prune-on is 'agentic-auto' and remindUnprunedCount is true (default), the
-  extension appends a tiny <pruner-note> line to the last toolResult before each
-  LLM call telling the model how many unpruned tool calls have piled up. This
-  helps the LLM decide when to call context_prune. Toggle via /pruner settings.
-  This setting has no effect in any other prune-on mode.
+  When the trigger is 'agentic-auto' and remindUnprunedCount is true (default), the
+  extension appends a tiny <coact-note> line to the last toolResult before each
+  LLM call telling the model how many uncompressed tool calls have piled up. This
+  helps the LLM decide when to call context_prune. Toggle via /CoACT settings.
+  This setting has no effect in any other trigger mode.
 
 Batching mode:
   - turn (default): each assistant turn that used tools gets its own summary block. Small, granular.
   - agent-message: all assistant turns between two consecutive user messages are merged into one summary.
     Use this when a single user request triggers many back-to-back tool rounds that belong together.
 
+Min raw tokens (minRawTokenThreshold):
+  Skip the summarizer LLM call for any batch whose raw tool-output is below this many
+  TOKENS (0 = always summarize). A tiny batch's summary is almost always larger
+  than the raw content, so skipping avoids wasted calls while still advancing the compression
+  frontier past those turns. Steps in 50-token increments; cycle in /CoACT settings.
+
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
-  - on-context-tag: good if you already use pi-context save-points. Prunes on explicit milestones via context_checkpoint (legacy: context_tag).
+  - on-context-tag: good if you already use pi-context save-points. Compresses on explicit milestones via context_checkpoint (legacy: context_tag).
   - on-demand: maximum manual control. Best when you want to decide exactly when to trade cache stability for shorter context.
-  - agent-message: recommended default. Batches a whole tool-using run, then prunes once after the final text reply so future requests become cacheable again.
+  - agent-message: recommended default. Batches a whole tool-using run, then compresses once after the final text reply so future requests become cacheable again.
   - agentic-auto: useful for longer autonomous runs, but depends on the model using context_prune sparingly.
 
 Why this matters:
-  Frequent edits to earlier context can reduce prompt/prefix cache hits on providers that cache identical prefixes. Batched pruning is usually cheaper and faster than pruning every turn.
+  Frequent edits to earlier context can reduce prompt/prefix cache hits on providers that cache identical prefixes. Batched compression is usually cheaper and faster than compressing every turn.
 
 Related:
   - pi-context extension (provides context_checkpoint, legacy context_tag): https://github.com/ttttmr/pi-context
@@ -226,7 +246,7 @@ Settings are saved to ~/.pi/agent/context-prune/settings.json`;
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SPINNER_INTERVAL_MS = 120;
 
-type RowStatus = "pending" | "running" | "done" | "skipped";
+type RowStatus = "pending" | "running" | "done" | "skipped" | "below-threshold";
 
 interface WidgetRow {
   label: string;
@@ -237,7 +257,7 @@ interface WidgetRow {
 }
 
 /**
- * Registers a multi-row progress widget above the editor for /pruner now.
+ * Registers a multi-row progress widget above the editor for /CoACT now.
  * Returns helpers to update row state and clear the widget when done.
  * Each row shows a spinner, label, tool-call count, and live summary char count.
  */
@@ -314,6 +334,8 @@ function startPrunerWidget(
               return `✓ ${row.label} · ${count} · ${formatCharProgress(row.receivedChars, row.rawChars)}`;
             } else if (row.status === "skipped") {
               return `⚠ ${row.label} · ${count} · skipped`;
+            } else if (row.status === "below-threshold") {
+              return `○ ${row.label} · ${count} · below threshold`;
             } else {
               return `○ ${row.label} · ${count} · pending`;
             }
@@ -345,18 +367,15 @@ function startPrunerWidget(
 export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
-  flushPending: (ctx: ExtensionCommandContext, options?: FlushOptions) => Promise<
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
-    | { ok: false; reason: string; error?: string }
-  >,
+  flushPending: (ctx: ExtensionCommandContext, options?: FlushOptions) => Promise<FlushResult>,
   capturePendingBatches: (ctx: ExtensionCommandContext) => CapturedBatch[],
   syncToolActivation: () => void,
   getStats: () => SummarizerStats,
   indexer: ToolCallIndexer,
 ): void {
-  // Register the /pruner command
-  pi.registerCommand("pruner", {
-    description: "Context-prune settings and commands",
+  // Register the /CoACT command
+  pi.registerCommand("CoACT", {
+    description: "CoACT — context compression settings and commands",
     getArgumentCompletions(prefix: string) {
       return SUBCOMMANDS.filter((s) => s.value.startsWith(prefix));
     },
@@ -366,17 +385,17 @@ export function registerCommands(
       let subcommand = parts[0] || undefined;
       const subArgs = parts.slice(1); // e.g. ["model", "anthropic/claude-haiku-3-5"] or ["on"])
 
-      // ── Bare /pruner → interactive picker ──
+      // ── Bare /CoACT → interactive picker ──
       if (!subcommand) {
         const options = SUBCOMMANDS.map((s) => s.label);
-        const choice = await ctx.ui.select("pruner — choose a subcommand", options);
+        const choice = await ctx.ui.select("CoACT — choose a subcommand", options);
         if (!choice) return;
         // Extract the value (first word) from the label like "settings — interactive settings overlay"
         subcommand = choice.split(/\s+/)[0];
       }
 
       switch (subcommand) {
-        // ── /pruner settings ── interactive overlay ──
+        // ── /CoACT settings ── interactive overlay ──
         case "settings": {
           const config = currentConfig.value;
           const availableModels = ctx.modelRegistry?.getAvailable() ?? [];
@@ -387,18 +406,18 @@ export function registerCommands(
               label: "Enabled",
               values: ["true", "false"],
               currentValue: String(config.enabled),
-              description: "Enable or disable context pruning",
+              description: "Enable or disable CoACT",
             },
             {
               id: "showPruneStatusLine",
-              label: "Prune status line",
+              label: "CoACT status line",
               values: ["true", "false"],
               currentValue: String(config.showPruneStatusLine),
               description: pruneStatusLineDescription(config),
             },
             {
               id: "pruneOn",
-              label: "Prune trigger",
+              label: "Trigger mode",
               values: PRUNE_ON_MODES.map((m) => m.value),
               currentValue: config.pruneOn,
               description: pruneTriggerDescription(config.pruneOn),
@@ -442,13 +461,13 @@ export function registerCommands(
             {
               id: "summarizerThinking",
               label: "Summarizer thinking",
-              values: SUMMARIZER_THINKING_LEVELS.map((level) => level.value),
+              values: getSupportedThinkingLevels(currentConfig.value, ctx).map((l) => l.value),
               currentValue: config.summarizerThinking,
               description: summarizerThinkingDescription(config.summarizerThinking),
             },
             {
               id: "remindUnprunedCount",
-              label: "Remind unpruned count",
+              label: "Remind uncompressed count",
               values: ["true", "false"],
               currentValue: String(config.remindUnprunedCount),
               description: remindUnprunedCountDescription(config),
@@ -459,6 +478,13 @@ export function registerCommands(
               values: BATCHING_MODES.map((m) => m.value),
               currentValue: config.batchingMode,
               description: batchingModeDescription(config.batchingMode),
+            },
+            {
+              id: "minRawTokenThreshold",
+              label: "Min raw tokens",
+              values: MIN_RAW_TOKEN_PRESETS.map(String),
+              currentValue: String(config.minRawTokenThreshold),
+              description: minRawTokenThresholdDescription(config.minRawTokenThreshold),
             },
           ];
 
@@ -509,6 +535,12 @@ export function registerCommands(
               if (batchingItem) {
                 batchingItem.description = batchingModeDescription(newConfig.batchingMode);
               }
+            } else if (id === "minRawTokenThreshold") {
+              newConfig.minRawTokenThreshold = quantizeRawTokenThreshold(Number(newValue) || 0);
+              const minRawItem = items.find((item) => item.id === "minRawTokenThreshold");
+              if (minRawItem) {
+                minRawItem.description = minRawTokenThresholdDescription(newConfig.minRawTokenThreshold);
+              }
             }
             currentConfig.value = newConfig;
             saveConfig(newConfig);
@@ -534,7 +566,7 @@ export function registerCommands(
           await ctx.ui.custom(
             (_tui, _theme, _keybindings, done) => {
               closeSettingsOverlay = () => done(undefined);
-              return new SettingsOverlay("pruner settings", settingsList);
+              return new SettingsOverlay("CoACT settings", settingsList);
             },
             {
               overlay: true,
@@ -544,27 +576,27 @@ export function registerCommands(
           break;
         }
 
-        // ── /pruner on ──
+        // ── /CoACT on ──
         case "on": {
           currentConfig.value = { ...currentConfig.value, enabled: true };
           saveConfig(currentConfig.value);
-          ctx.ui.notify("Context pruning enabled.");
+          ctx.ui.notify("CoACT enabled.");
           setPruneStatusWidget(ctx, currentConfig.value, getStats());
           syncToolActivation();
           break;
         }
 
-        // ── /pruner off ──
+        // ── /CoACT off ──
         case "off": {
           currentConfig.value = { ...currentConfig.value, enabled: false };
           saveConfig(currentConfig.value);
-          ctx.ui.notify("Context pruning disabled.");
+          ctx.ui.notify("CoACT disabled.");
           setPruneStatusWidget(ctx, currentConfig.value, getStats());
           syncToolActivation();
           break;
         }
 
-        // ── /pruner status ──
+        // ── /CoACT status ──
         case "status": {
           const cfg = currentConfig.value;
           const mode = PRUNE_ON_MODES.find((m) => m.value === cfg.pruneOn)?.label ?? cfg.pruneOn;
@@ -573,16 +605,16 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `CoACT status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  min raw:  ${cfg.minRawTokenThreshold > 0 ? `${cfg.minRawTokenThreshold} tokens` : "off"}\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }
 
-        // ── /pruner tree ── foldable tree browser ──
+        // ── /CoACT tree ── foldable tree browser ──
         case "tree": {
           const roots = buildPruneTree(ctx, indexer);
           if (roots.length === 0) {
-            ctx.ui.notify("No pruned tool calls found in this session.", "info");
+            ctx.ui.notify("No compressed tool calls found in this session.", "info");
             break;
           }
 
@@ -599,20 +631,20 @@ export function registerCommands(
           break;
         }
 
-        // ── /pruner stats ──
+        // ── /CoACT stats ──
         case "stats": {
           const s = getStats();
           if (s.callCount === 0) {
-            ctx.ui.notify("pruner stats: no summarizer calls yet.");
+            ctx.ui.notify("CoACT stats: no summarizer calls yet.");
           } else {
             ctx.ui.notify(
-              `pruner stats:\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`,
+              `CoACT stats:\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`,
             );
           }
           break;
         }
 
-        // ── /pruner model [value] ──
+        // ── /CoACT model [value] ──
         case "model": {
           const modelArg = subArgs[0];
           if (!modelArg) {
@@ -637,7 +669,7 @@ export function registerCommands(
           break;
         }
 
-        // ── /pruner thinking [value] ──
+        // ── /CoACT thinking [value] ──
         case "thinking": {
           const thinkingArg = subArgs[0];
           if (!thinkingArg) {
@@ -663,12 +695,12 @@ export function registerCommands(
           break;
         }
 
-        // ── /pruner prune-on [value] ──
-        case "prune-on": {
+        // ── /CoACT trigger [value] ──
+        case "trigger": {
           const modeArg = subArgs[0];
           if (!modeArg) {
             const options = PRUNE_ON_MODES.map((m) => `${m.value} — ${m.label}`);
-            const choice = await ctx.ui.select("pruner — choose when to trigger summarization", options);
+            const choice = await ctx.ui.select("CoACT — choose when to trigger summarization", options);
             if (!choice) return;
             // Extract the value (first word) from "every-turn — Every turn"
             const chosenValue = choice.split(/\s+/)[0] as ContextPruneConfig["pruneOn"];
@@ -682,12 +714,12 @@ export function registerCommands(
           break;
         }
 
-        // ── /pruner batching [value] ──
+        // ── /CoACT batching [value] ──
         case "batching": {
           const batchArg = subArgs[0];
           if (!batchArg) {
             const options = BATCHING_MODES.map((m) => `${m.value} — ${m.label}`);
-            const choice = await ctx.ui.select("pruner — choose batching granularity", options);
+            const choice = await ctx.ui.select("CoACT — choose batching granularity", options);
             if (!choice) return;
             const chosenValue = choice.split(/\s+/)[0] as ContextPruneConfig["batchingMode"];
             currentConfig.value = { ...currentConfig.value, batchingMode: chosenValue };
@@ -706,17 +738,17 @@ export function registerCommands(
           break;
         }
 
-        // ── /pruner now ──
+        // ── /CoACT now ──
         case "now": {
           if (!currentConfig.value.enabled) {
-            ctx.ui.notify("Context pruning is disabled. Run /pruner on first.", "warning");
+            ctx.ui.notify("CoACT is disabled. Run /CoACT on first.", "warning");
             return;
           }
 
           // Capture the pending queue first so we can pre-build the widget rows.
           const batches = capturePendingBatches(ctx);
           if (batches.length === 0) {
-            ctx.ui.notify("pruner: nothing pending — no batches to summarize", "info");
+            ctx.ui.notify("CoACT: nothing pending — no batches to summarize", "info");
             break;
           }
 
@@ -730,6 +762,8 @@ export function registerCommands(
                 updateRow(index, "running", 0);
               } else if (stage === "done") {
                 updateRow(index, "done");
+              } else if (stage === "below-threshold") {
+                updateRow(index, "below-threshold");
               } else {
                 updateRow(index, "skipped");
               }
@@ -745,26 +779,39 @@ export function registerCommands(
 
           if (!result.ok) {
             const suffix = "error" in result && result.error ? ` (${result.error})` : "";
-            ctx.ui.notify(`pruner: nothing flushed — ${result.reason}${suffix}`, result.reason === "empty" ? "info" : "warning");
+            ctx.ui.notify(`CoACT: nothing flushed — ${result.reason}${suffix}`, result.reason === "empty" ? "info" : "warning");
             break;
           }
 
-          if (result.reason === "skipped-oversized") {
+          if (result.reason === "skipped-below-threshold") {
             ctx.ui.notify(
-              `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
-              "warning"
+              `CoACT: skipped ${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} (${result.belowThresholdToolCallCount} tool call${result.belowThresholdToolCallCount === 1 ? "" : "s"}, ${result.rawCharCount} raw chars) — below minRawTokenThreshold (${currentConfig.value.minRawTokenThreshold} tokens); frontier advanced past this range`,
+              "info"
             );
             break;
           }
 
+          if (result.reason === "skipped-oversized" || result.reason === "skipped-mixed") {
+            const oversizeLine = `CoACT: skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`;
+            if (result.reason === "skipped-mixed" && result.belowThresholdBatchCount > 0) {
+              ctx.ui.notify(
+                `${oversizeLine}\n(${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} also skipped — below minRawTokenThreshold)`,
+                "warning"
+              );
+            } else {
+              ctx.ui.notify(oversizeLine, "warning");
+            }
+            break;
+          }
+
           ctx.ui.notify(
-            `pruner: pruned ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"} — summary ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars`,
+            `CoACT: compressed ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} from ${result.batchCount} batch${result.batchCount === 1 ? "" : "es"} — summary ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars`,
             "info"
           );
           break;
         }
 
-        // ── /pruner help ──
+        // ── /CoACT help ──
         case "help":
           ctx.ui.notify(HELP_TEXT);
           break;
@@ -772,7 +819,7 @@ export function registerCommands(
         // ── Unknown subcommand ──
         default:
           ctx.ui.notify(
-            `Unknown subcommand: "${subcommand}". Run /pruner help for usage.`,
+            `Unknown subcommand: "${subcommand}". Run /CoACT help for usage.`,
           );
       }
     },
@@ -788,7 +835,7 @@ export function registerCommands(
     };
     const turnIndex = details?.turnIndex ?? "?";
     const toolCount = normalizeSummaryToolCallRefs(details).length;
-    const header = theme.fg("accent", `[pruner] Turn ${turnIndex} summary (${toolCount} tool${toolCount === 1 ? "" : "s"})`);
+    const header = theme.fg("accent", `[CoACT] Turn ${turnIndex} summary (${toolCount} tool${toolCount === 1 ? "" : "s"})`);
     if (expanded) {
       return new Text(header + "\n" + unwrapSummaryForDisplay(message.content), 0, 0);
     }

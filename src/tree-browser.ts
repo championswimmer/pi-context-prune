@@ -84,7 +84,7 @@ function boxLines(
 
 /**
  * Scans the current session branch for prune-summary entries and builds a
- * foldable tree where each summary is a parent node and its pruned tool calls
+ * foldable tree where each summary is a parent node and its compressed tool calls
  * are children.  Tool call records are looked up via the indexer.
  *
  * Each node carries a `charCount` so the UI can show how many characters the
@@ -133,7 +133,7 @@ export function buildPruneTree(
       0,
     );
 
-    const header = `[pruner] Turn ${turnIndex} summary (${children.length} tool${children.length === 1 ? "" : "s"} · ${formatChars(summaryChars)} chars · original ${formatChars(totalOriginalChars)})`;
+    const header = `[CoACT] Turn ${turnIndex} summary (${children.length} tool${children.length === 1 ? "" : "s"} · ${formatChars(summaryChars)} chars · original ${formatChars(totalOriginalChars)})`;
     const label = timestamp ? `${header} · ${timestamp}` : header;
 
     roots.push({
@@ -252,7 +252,7 @@ export class TreeBrowser implements Component {
 
     let baseLines: string[];
     if (this.flatRows.length === 0) {
-      const msg = this.theme.fg("muted", "(no pruned tool calls in this session)");
+      const msg = this.theme.fg("muted", "(no compressed tool calls in this session)");
       baseLines = boxLines([msg], width, "Pruned Tool Calls", this.theme);
     } else {
       const contentLines: string[] = [

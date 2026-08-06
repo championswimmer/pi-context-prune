@@ -60,7 +60,7 @@ export const CUSTOM_TYPE_FRONTIER = "context-prune-frontier";
 export const STATUS_WIDGET_ID = "context-prune";
 
 /**
- * Widget ID for the live /pruner now progress panel shown above the editor.
+ * Widget ID for the live /CoACT now progress panel shown above the editor.
  */
 export const PROGRESS_WIDGET_ID = "context-prune-progress";
 
@@ -108,7 +108,7 @@ What happens when you call context_prune:
  * - "every-turn"     : after every assistant turn that calls tools
  * - "on-context-tag" : batches up turns and flushes when the model calls context_checkpoint
  *                       (legacy pi-context name: context_tag)
- * - "on-demand"      : only when the user runs /pruner now
+ * - "on-demand"      : only when the user runs /CoACT now
  * - "agent-message"  : batches up turns and flushes when the agent sends a final text response
  *                       (a turn with no tool calls), or when the agent loop ends (default)
  * - "agentic-auto"   : the LLM agent decides when to prune by calling the context_prune tool;
@@ -125,7 +125,7 @@ export type PruneOn = "every-turn" | "on-context-tag" | "on-demand" | "agent-mes
 export type BatchingMode = "turn" | "agent-message";
 
 /** Thinking/reasoning level requested for summarizer LLM calls. */
-export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Choices for the summarizer thinking setting (used by commands and settings overlay) */
 export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: string }[] = [
@@ -136,6 +136,7 @@ export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: str
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "xhigh", label: "XHigh" },
+  { value: "max", label: "Max" },
 ];
 
 /** Choices for the batching-mode setting (used by commands and settings overlay) */
@@ -184,6 +185,11 @@ export interface ContextPruneConfig {
    *                     (all turns between two user messages are merged)
    */
   batchingMode: BatchingMode;
+  /**
+   * Minimum total raw tool-result TOKENS required before a summarizer call
+   * is made. A value of 0 disables this pre-check. Default: 0 (disabled).
+   */
+  minRawTokenThreshold: number;
 }
 
 export const DEFAULT_CONFIG: ContextPruneConfig = {
@@ -194,6 +200,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   pruneOn: "agent-message",
   remindUnprunedCount: true,
   batchingMode: "turn",
+  minRawTokenThreshold: 0,
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────
@@ -294,7 +301,11 @@ export interface SummarizerStats {
 }
 
 /** Outcome of the most recent completed prune attempt. */
-export type PruneFrontierOutcome = "summarized" | "skipped-oversized";
+export type PruneFrontierOutcome =
+  | "summarized"
+  | "skipped-oversized"
+  | "skipped-below-threshold"
+  | "skipped-mixed";
 
 /**
  * Snapshot of the last successfully completed prune attempt boundary.
@@ -326,13 +337,13 @@ export interface PruneFrontier {
 
 /**
  * Progress callback invoked by `flushPending` when processing batches sequentially.
- * Only fired when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
+ * Only fired when the caller passes `onProgress` in `FlushOptions` (i.e. `/CoACT now`).
  */
 export type ProgressCallback = (
   index: number,
   total: number,
   batch: CapturedBatch,
-  stage: "start" | "done" | "skipped",
+  stage: "start" | "done" | "skipped" | "below-threshold",
 ) => void;
 
 /** Live text-progress callback for a batch currently being summarized. */
@@ -343,6 +354,23 @@ export type BatchTextProgressCallback = (
   receivedChars: number,
 ) => void;
 
+export type FlushResult =
+  | {
+      ok: true;
+      reason: "flushed" | "skipped-oversized" | "skipped-below-threshold" | "skipped-mixed";
+      batchCount: number;
+      toolCallCount: number;
+      rawCharCount: number;
+      summaryCharCount: number;
+      belowThresholdBatchCount: number;
+      belowThresholdToolCallCount: number;
+    }
+  | {
+      ok: false;
+      reason: "empty" | "already-flushing" | "summarizer-failed" | "stale-context" | "failed" | "aborted";
+      error?: string;
+    };
+
 /** Options accepted by `flushPending`. */
 export interface FlushOptions {
   /** Delivery path: "runtime" uses sendMessage/steer (default); "session" writes directly to session. */
@@ -350,12 +378,12 @@ export interface FlushOptions {
   /**
    * When provided, batches are processed sequentially (one LLM call each) instead of
    * in parallel, and this callback is invoked before/after each batch. Used by
-   * `/pruner now` to drive the multi-row progress overlay.
+   * `/CoACT now` to drive the multi-row progress overlay.
    */
   onProgress?: ProgressCallback;
   /**
    * When provided, receives the number of summary characters streamed so far for
-   * the currently-running batch. Used by `/pruner now` to show live progress.
+   * the currently-running batch. Used by `/CoACT now` to show live progress.
    */
   onBatchTextProgress?: BatchTextProgressCallback;
   /**

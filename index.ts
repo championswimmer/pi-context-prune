@@ -8,7 +8,7 @@
  *   indexer      — maintain Map<toolCallId, ToolCallRecord> + session persistence
  *   pruner       — filter context event messages
  *   query-tool   — register context_tree_query tool
- *   commands     — register /pruner command + message renderer
+ *   commands     — register /CoACT command + message renderer
  *
  * Usage:  pi -e .
  */
@@ -23,7 +23,22 @@ import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminde
 import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, setPruneStatusWidget } from "./src/commands.js";
 import { formatSummaryToolCallRefs, makeSummaryDetails, wrapSummaryForContext } from "./src/summary-refs.js";
-import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, FlushOptions } from "./src/types.js";
+import type {
+  ContextPruneConfig,
+  CapturedBatch,
+  IndexEntryData,
+  PruneFrontier,
+  PruneFrontierOutcome,
+  FlushOptions,
+  FlushResult,
+  SummarizeResult,
+} from "./src/types.js";
+import {
+  batchRawCharCount,
+  isBelowRawTokenThreshold,
+  computeFlushOutcome,
+} from "./src/prune-threshold.js";
+import { countTokens } from "./src/tokens.js";
 import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
@@ -39,7 +54,7 @@ import { registerContextPruneTool } from "./src/context-prune-tool.js";
 import { PruneFrontierTracker } from "./src/frontier.js";
 
 export default function (pi: ExtensionAPI) {
-  // Shared mutable config reference — updated by /pruner commands
+  // Shared mutable config reference — updated by /CoACT commands
   const currentConfig: { value: ContextPruneConfig } = {
     value: { ...DEFAULT_CONFIG, pruneOn: "every-turn" },
   };
@@ -56,10 +71,6 @@ export default function (pi: ExtensionAPI) {
   // Pending batches — accumulated until the prune trigger fires
   const pendingBatches: CapturedBatch[] = [];
   let isFlushing = false;
-
-  type FlushResult =
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
-    | { ok: false; reason: "empty" | "already-flushing" | "summarizer-failed" | "stale-context" | "failed" | "aborted"; error?: string };
 
   type SessionAppender = {
     appendCustomEntry(customType: string, data?: unknown): string;
@@ -133,7 +144,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   // ── Helper: capture + trim + group pending batches (no LLM work) ──────────
-  // Exposed to commands.ts via registerCommands so /pruner now can preview the
+  // Exposed to commands.ts via registerCommands so /CoACT now can preview the
   // queue before opening the multi-row progress overlay.
   const capturePendingBatches = (ctx: any): CapturedBatch[] => {
     let batches: CapturedBatch[] = [];
@@ -199,13 +210,29 @@ export default function (pi: ExtensionAPI) {
         options.onBatchTextProgress?.(index, total, batch, receivedChars);
       };
 
-      // Summarize batches. When onProgress is provided (i.e. /pruner now with the
-      // multi-row overlay) we process sequentially so each row can be checked off
-      // as its LLM call completes. Otherwise all batches run in parallel.
-      let results: (import("./src/types.js").SummarizeResult | null)[];
-      if (options.onProgress) {
-        results = [];
-        for (let i = 0; i < batches.length; i++) {
+      // Pre-filter: skip summarizer LLM calls for batches whose raw tool-output
+      // is below `minRawTokenThreshold`. Those batches are still counted as
+      // processed (their raw results stay in context) and the frontier advances
+      // past them so they are not retried forever, but no LLM call is made.
+      const threshold = currentConfig.value.minRawTokenThreshold;
+      const eligibleIndices: number[] = [];
+      const belowThresholdFlags: boolean[] = new Array(batches.length).fill(false);
+      for (let i = 0; i < batches.length; i++) {
+        if (isBelowRawTokenThreshold(batches[i], threshold, countTokens)) {
+          belowThresholdFlags[i] = true;
+          options.onProgress?.(i, batches.length, batches[i], "below-threshold");
+        } else {
+          eligibleIndices.push(i);
+        }
+      }
+
+      // Summarize only the eligible batches. When onProgress is provided (i.e.
+      // /CoACT now with the multi-row overlay) we process sequentially so each
+      // row can be checked off as its LLM call completes. Otherwise all eligible
+      // batches run in parallel.
+      const results: (SummarizeResult | null)[] = new Array(batches.length).fill(null);
+      if (eligibleIndices.length > 0 && options.onProgress) {
+        for (const i of eligibleIndices) {
           options.onProgress(i, batches.length, batches[i], "start");
           const r = await summarizeBatch(batches[i], currentConfig.value, ctx, {
             signal: options.signal,
@@ -213,15 +240,20 @@ export default function (pi: ExtensionAPI) {
               reportBatchTextProgress(i, batches.length, batches[i], receivedChars);
             },
           });
-          results.push(r);
+          results[i] = r;
           options.onProgress(i, batches.length, batches[i], r ? "done" : "skipped");
         }
-      } else {
-        // Parallel — one LLM call per batch, all in flight simultaneously.
-        results = await summarizeBatches(batches, currentConfig.value, ctx, {
-          onBatchTextProgress: reportBatchTextProgress,
+      } else if (eligibleIndices.length > 0) {
+        // Parallel — one LLM call per eligible batch, all in flight simultaneously.
+        const eligibleBatches = eligibleIndices.map((i) => batches[i]);
+        const eligibleResults = await summarizeBatches(eligibleBatches, currentConfig.value, ctx, {
+          onBatchTextProgress: (index, _total, batch, receivedChars) =>
+            reportBatchTextProgress(eligibleIndices[index], batches.length, batch, receivedChars),
           signal: options.signal,
         });
+        for (let k = 0; k < eligibleResults.length; k++) {
+          results[eligibleIndices[k]] = eligibleResults[k];
+        }
       }
 
       // Process results in order; stop at first null (individual call failure).
@@ -231,24 +263,40 @@ export default function (pi: ExtensionAPI) {
       let totalRawCharCount = 0;
       let totalSummaryCharCount = 0;
       let totalToolCallCount = 0;
-      const oversizedBatches: CapturedBatch[] = [];
+      const oversizedBatches: { batch: CapturedBatch; summaryTokens: number; contentTokens: number; rawTokens: number }[] = [];
+      let belowThresholdBatchCount = 0;
+      let belowThresholdToolCallCount = 0;
       let firstFailureIndex = -1;
 
       for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+
+        // Below-threshold batches: skip without a summarizer call.
+        if (belowThresholdFlags[i]) {
+          const raw = batchRawCharCount(batch);
+          totalRawCharCount += raw;
+          totalToolCallCount += batch.toolCalls.length;
+          belowThresholdBatchCount += 1;
+          belowThresholdToolCallCount += batch.toolCalls.length;
+          processedBatches.push(batch);
+          continue;
+        }
+
         const result = results[i];
         if (!result) {
           firstFailureIndex = i;
           break;
         }
 
-        const batch = batches[i];
-        const batchRawCharCount = batch.toolCalls.reduce((s, tc) => s + tc.resultText.length, 0);
+        const batchRawCharCountValue = batchRawCharCount(batch);
+        const batchRawTokenCount = batch.toolCalls.reduce((sum, tc) => sum + countTokens(tc.resultText), 0);
         const summaryRefs = indexer.allocateSummaryRefs(batch);
         const summaryText = wrapSummaryForContext(result.summaryText + formatSummaryToolCallRefs(summaryRefs));
-        const shouldSkipOversized = summaryText.length > batchRawCharCount;
+        const summaryTokenCount = countTokens(summaryText);
+        const shouldSkipOversized = summaryTokenCount > batchRawTokenCount;
 
         statsAccum.add(result.usage);
-        totalRawCharCount += batchRawCharCount;
+        totalRawCharCount += batchRawCharCountValue;
         totalSummaryCharCount += summaryText.length;
         totalToolCallCount += batch.toolCalls.length;
 
@@ -272,7 +320,12 @@ export default function (pi: ExtensionAPI) {
               persistBatchIndex(batch, appendEntry);
             }
           } else {
-            oversizedBatches.push(batch);
+            oversizedBatches.push({
+              batch,
+              summaryTokens: summaryTokenCount,
+              contentTokens: countTokens(result.summaryText),
+              rawTokens: batchRawTokenCount,
+            });
           }
         } catch (err) {
           // Persistence error mid-loop: stop here, restore this and remaining batches.
@@ -301,7 +354,12 @@ export default function (pi: ExtensionAPI) {
       // Advance frontier to the last batch we actually processed.
       const lastBatch = processedBatches[processedBatches.length - 1];
       const lastTC = lastBatch.toolCalls[lastBatch.toolCalls.length - 1];
-      const allOversized = oversizedBatches.length === processedBatches.length;
+      const summarizedBatchCount = processedBatches.length - oversizedBatches.length - belowThresholdBatchCount;
+      const outcome: PruneFrontierOutcome = computeFlushOutcome(
+        summarizedBatchCount,
+        oversizedBatches.length,
+        belowThresholdBatchCount,
+      );
       const frontierSnapshot: PruneFrontier = {
         lastAttemptedToolCallId: lastTC.toolCallId,
         lastAttemptedToolName: lastTC.toolName,
@@ -311,7 +369,7 @@ export default function (pi: ExtensionAPI) {
         attemptedToolCallCount: totalToolCallCount,
         rawCharCount: totalRawCharCount,
         summaryCharCount: totalSummaryCharCount,
-        outcome: allOversized ? "skipped-oversized" : "summarized",
+        outcome,
       };
 
       try {
@@ -334,24 +392,28 @@ export default function (pi: ExtensionAPI) {
 
       setPruneStatusWidget(ctx, currentConfig.value, statsAccum.getStats());
 
-      // Notify about any oversized batches that were skipped
-      for (const batch of oversizedBatches) {
-        const batchRaw = batch.toolCalls.reduce((s, tc) => s + tc.resultText.length, 0);
-        const batchSummaryLen = results[batches.indexOf(batch)]?.summaryText.length ?? 0;
+      // Notify about any oversized batches that were skipped (genuinely wasteful
+      // summaries). Below-threshold skips are expected and intentionally silent;
+      // they are surfaced via the /CoACT now widget and the returned result.
+      for (const { batch, summaryTokens, contentTokens, rawTokens } of oversizedBatches) {
+        const overhead = summaryTokens - contentTokens;
+        const overheadNote = overhead > 0 ? ` (${contentTokens} content + ${overhead} wrapper/refs)` : "";
         safeNotify(
           ctx,
-          `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary was ${batchSummaryLen} chars vs ${batchRaw} raw chars; frontier advanced past this range`,
+          `CoACT: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary block was ${summaryTokens} tokens${overheadNote} vs ${rawTokens} raw tokens; frontier advanced past this range`,
           "warning"
         );
       }
 
       return {
         ok: true,
-        reason: allOversized ? "skipped-oversized" : "flushed",
+        reason: outcome === "summarized" ? "flushed" : outcome,
         batchCount: processedBatches.length,
         toolCallCount: totalToolCallCount,
         rawCharCount: totalRawCharCount,
         summaryCharCount: totalSummaryCharCount,
+        belowThresholdBatchCount,
+        belowThresholdToolCallCount,
       };
     } catch (err) {
       restoreBatches(batches);
@@ -364,7 +426,7 @@ export default function (pi: ExtensionAPI) {
       if (isStaleContextError(err)) {
         return { ok: false, reason: "stale-context", error: errorMessage(err) };
       }
-      safeNotify(ctx, `pruner: summarization failed: ${errorMessage(err)}`, "error");
+      safeNotify(ctx, `CoACT: summarization failed: ${errorMessage(err)}`, "error");
       return { ok: false, reason: "failed", error: errorMessage(err) };
     } finally {
       isFlushing = false;
@@ -412,7 +474,7 @@ export default function (pi: ExtensionAPI) {
     syncToolActivation();
 
     ctx.ui.notify(
-      `pruner loaded — pruning ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${currentConfig.value.summarizerModel}`,
+      `CoACT loaded — compression ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${currentConfig.value.summarizerModel}`,
       "info"
     );
   });
@@ -473,14 +535,14 @@ export default function (pi: ExtensionAPI) {
           trigger = "agent calling context_prune";
           break;
         default:
-          trigger = "/pruner now";
+          trigger = "/CoACT now";
           break;
       }
       if (currentConfig.value.showPruneStatusLine) {
         setPruneStatusWidget(ctx, currentConfig.value, `prune: ${n} pending`);
         safeNotify(
           ctx,
-          `pruner: ${n} turn${n === 1 ? "" : "s"} queued — will summarize on ${trigger}`,
+          `CoACT: ${n} turn${n === 1 ? "" : "s"} queued — will summarize on ${trigger}`,
           "info"
         );
       }
@@ -532,8 +594,8 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // Append a small `<pruner-note>` to the last toolResult telling the model
-    // how many unpruned tool calls are sitting in context. Only active in
+    // Append a small `<coact-note>` to the last toolResult telling the model
+    // how many uncompressed tool calls are sitting in context. Only active in
     // agentic-auto mode (where the LLM itself decides when to call
     // context_prune) and only when the user has the reminder enabled.
     if (
@@ -570,6 +632,6 @@ export default function (pi: ExtensionAPI) {
   // ── Register context_prune tool (always registered, activated only in agentic-auto mode) ──
   registerContextPruneTool(pi, (ctx, options) => flushPending(ctx, { delivery: "runtime", ...options }));
 
-  // ── Register /pruner command + summary message renderer ────────────
+  // ── Register /CoACT command + summary message renderer ────────────
   registerCommands(pi, currentConfig, flushPending, capturePendingBatches, syncToolActivation, () => statsAccum.getStats(), indexer);
 }

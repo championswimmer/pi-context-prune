@@ -1,16 +1,24 @@
 name: Release to npm
 
-# Publishes the package to npm whenever a semver tag like v1.0.0 is pushed.
-# Uses npm trusted publishing via GitHub Actions OIDC; no NPM_TOKEN secret is required.
+# Auto-publishes to npm whenever package.json changes on main.
+# Idempotent: if the version is already on npm, the run skips.
+# Requires an `NPM_TOKEN` repository secret (npm automation / granular access token).
 
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-*"
+    branches: [main]
+    paths:
+      - "package.json"
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
+    # Only run on the canonical repo, not on random forks.
+    if: github.repository == 'pinion05/PI-CoACT'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,28 +28,49 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          package-manager-cache: false
-
-      - name: Verify tag matches package.json version
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          echo "Tag version:     $TAG_VERSION"
-          echo "Package version: $PKG_VERSION"
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
-            exit 1
-          fi
 
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Build
-        run: npm run build --if-present
+      - name: Syntax check
+        run: npm run check
 
-      - name: Publish to npm with trusted publishing
+      - name: Tests
+        run: npm test
+
+      - name: Read package identity
+        id: pkg
+        run: |
+          echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if version already published
+        id: published
+        run: |
+          if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }} is already on npm; skipping publish."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        if: steps.published.outputs.already != 'true'
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.published.outputs.already }}" = "true" ]; then
+            echo "### ⏭️ Skipped — ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }} already published" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ job.status }}" = "success" ]; then
+            echo "### 📦 Published ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ❌ Publish failed for ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,6 +1,7 @@
 import { stream } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SUMMARIZER_THINKING_LEVELS } from "./types.js";
 import type {
   CapturedBatch,
   ContextPruneConfig,
@@ -32,6 +33,68 @@ export function summarizerThinkingOptions(config: ContextPruneConfig): Record<st
   return { reasoningEffort: level === "off" ? undefined : level };
 }
 
+/** Ordered reasoning efforts (least → most intensive), matching pi-ai's Effort enum. */
+const EFFORT_ORDER: SummarizerThinking[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Resolve the summarizer model WITHOUT firing UI notifications (silent).
+ * Returns null when it cannot be resolved (caller falls back gracefully).
+ */
+function lookupSummarizerModel(config: ContextPruneConfig, ctx: ExtensionContext): any | null {
+  if (config.summarizerModel === "default") {
+    return ctx.model ?? null;
+  }
+  const slash = config.summarizerModel.indexOf("/");
+  if (slash === -1) return null;
+  const provider = config.summarizerModel.slice(0, slash);
+  const modelId = config.summarizerModel.slice(slash + 1);
+  if (!provider || !modelId) return null;
+  try {
+    return ctx.modelRegistry?.find?.(provider, modelId) ?? ctx.modelRegistry?.get?.(provider, modelId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Thinking levels the current summarizer model actually supports, derived from
+ * its enriched `model.thinking` metadata (minLevel..maxLevel range, or explicit
+ * `levels`). Always offers "default" (inherit) and "off". Falls back to the full
+ * list when the model or its thinking metadata can't be resolved, so the overlay
+ * never breaks. Used by the /CoACT settings overlay to show only valid choices.
+ */
+export function getSupportedThinkingLevels(
+  config: ContextPruneConfig,
+  ctx: ExtensionContext,
+): { value: SummarizerThinking; label: string }[] {
+  const fallback = SUMMARIZER_THINKING_LEVELS;
+  const model = lookupSummarizerModel(config, ctx);
+  const thinking = model?.thinking;
+  if (!thinking) return fallback;
+
+  let efforts: SummarizerThinking[];
+  if (Array.isArray(thinking.levels) && thinking.levels.length > 0) {
+    efforts = thinking.levels as SummarizerThinking[];
+  } else if (thinking.minLevel && thinking.maxLevel) {
+    const lo = EFFORT_ORDER.indexOf(thinking.minLevel as SummarizerThinking);
+    const hi = EFFORT_ORDER.indexOf(thinking.maxLevel as SummarizerThinking);
+    if (lo === -1 || hi === -1 || lo > hi) return fallback;
+    efforts = EFFORT_ORDER.slice(lo, hi + 1);
+  } else {
+    return fallback;
+  }
+
+  const supported = new Set<SummarizerThinking>(["default", "off", ...efforts]);
+  const filtered = SUMMARIZER_THINKING_LEVELS.filter((l) => supported.has(l.value));
+  // Always show the current value even if (somehow) outside the supported range,
+  // so the overlay reflects reality and the user can cycle off it.
+  if (config.summarizerThinking && !filtered.some((l) => l.value === config.summarizerThinking)) {
+    const cur = SUMMARIZER_THINKING_LEVELS.find((l) => l.value === config.summarizerThinking);
+    if (cur) filtered.push(cur);
+  }
+  return filtered.length > 0 ? filtered : fallback;
+}
+
 /**
  * Returns the model to use for summarization.
  * config.summarizerModel === "default" => ctx.model
@@ -45,7 +108,7 @@ export function resolveModel(config: ContextPruneConfig, ctx: ExtensionContext):
   const slashIndex = config.summarizerModel.indexOf("/");
   if (slashIndex === -1) {
     ctx.ui.notify(
-      `pruner: invalid summarizerModel "${config.summarizerModel}", expected "provider/model-id". Falling back to default model.`,
+      `CoACT: invalid summarizerModel "${config.summarizerModel}", expected "provider/model-id". Falling back to default model.`,
       "warning"
     );
     return ctx.model;
@@ -57,7 +120,7 @@ export function resolveModel(config: ContextPruneConfig, ctx: ExtensionContext):
   const found = ctx.modelRegistry.find(provider, modelId);
   if (!found) {
     ctx.ui.notify(
-      `pruner: model "${config.summarizerModel}" not found in registry. Falling back to default model.`,
+      `CoACT: model "${config.summarizerModel}" not found in registry. Falling back to default model.`,
       "warning"
     );
     return ctx.model;
@@ -91,7 +154,7 @@ export async function summarizeBatch(
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
     if (!auth.ok) {
       const authMessage = "error" in auth ? auth.error : "authentication failed";
-      ctx.ui.notify(`pruner: summarization failed: ${authMessage}`, "error");
+      ctx.ui.notify(`CoACT: summarization failed: ${authMessage}`, "error");
       return null;
     }
 
@@ -163,7 +226,7 @@ export async function summarizeBatch(
     // and return { ok: false, reason: "aborted" } without showing a UI error.
     if (options.signal?.aborted) throw err;
     ctx.ui.notify(
-      `pruner: summarization failed: ${err.message}`,
+      `CoACT: summarization failed: ${err.message}`,
       "error"
     );
     return null;

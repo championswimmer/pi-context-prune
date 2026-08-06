@@ -1,2 +1,6 @@
 node_modules/
 package-lock.json
+
+# pi subagent/review scratch artifacts
+.pi-subagents/
+.pi-review/
