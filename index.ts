@@ -35,7 +35,7 @@ import type {
 } from "./src/types.js";
 import {
   batchRawCharCount,
-  isBelowRawCharThreshold,
+  isBelowRawTokenThreshold,
   computeFlushOutcome,
 } from "./src/prune-threshold.js";
 import { countTokens } from "./src/tokens.js";
@@ -211,14 +211,14 @@ export default function (pi: ExtensionAPI) {
       };
 
       // Pre-filter: skip summarizer LLM calls for batches whose raw tool-output
-      // is below `minRawCharThreshold`. Those batches are still counted as
+      // is below `minRawTokenThreshold`. Those batches are still counted as
       // processed (their raw results stay in context) and the frontier advances
       // past them so they are not retried forever, but no LLM call is made.
-      const threshold = currentConfig.value.minRawCharThreshold;
+      const threshold = currentConfig.value.minRawTokenThreshold;
       const eligibleIndices: number[] = [];
       const belowThresholdFlags: boolean[] = new Array(batches.length).fill(false);
       for (let i = 0; i < batches.length; i++) {
-        if (isBelowRawCharThreshold(batches[i], threshold)) {
+        if (isBelowRawTokenThreshold(batches[i], threshold, countTokens)) {
           belowThresholdFlags[i] = true;
           options.onProgress?.(i, batches.length, batches[i], "below-threshold");
         } else {

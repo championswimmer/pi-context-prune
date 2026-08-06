@@ -1,31 +1,44 @@
 import type { CapturedBatch, PruneFrontierOutcome } from "./types.js";
 
-/** Step (in characters) that minRawCharThreshold snaps to. */
-export const RAW_CHAR_THRESHOLD_STEP = 100;
+/** Step (in tokens) that minRawTokenThreshold snaps to. */
+export const RAW_TOKEN_THRESHOLD_STEP = 50;
 
 /** Count the raw tool-result characters in a captured batch. */
 export function batchRawCharCount(batch: CapturedBatch): number {
   return batch.toolCalls.reduce((sum, toolCall) => sum + toolCall.resultText.length, 0);
 }
 
-/**
- * Return true when a batch should be skipped before making a summarizer call.
- * A threshold of 0 disables the pre-check; the threshold is inclusive, so a
- * batch with exactly the configured number of raw characters is summarized.
- */
-export function isBelowRawCharThreshold(batch: CapturedBatch, threshold: number): boolean {
-  return threshold > 0 && batchRawCharCount(batch) < threshold;
+/** Count the raw tool-result TOKENS in a captured batch (counter injected for testability). */
+export function batchRawTokenCount(
+  batch: CapturedBatch,
+  countTokens: (text: string) => number,
+): number {
+  return batch.toolCalls.reduce((sum, toolCall) => sum + countTokens(toolCall.resultText), 0);
 }
 
 /**
- * Snap an arbitrary number to the nearest `RAW_CHAR_THRESHOLD_STEP` multiple.
+ * Return true when a batch should be skipped before making a summarizer call.
+ * A threshold of 0 disables the pre-check; the threshold is inclusive, so a
+ * batch with exactly the configured number of raw tokens is summarized.
+ * `countTokens` is injected so this module stays free of runtime cross-file imports.
+ */
+export function isBelowRawTokenThreshold(
+  batch: CapturedBatch,
+  threshold: number,
+  countTokens: (text: string) => number,
+): boolean {
+  return threshold > 0 && batchRawTokenCount(batch, countTokens) < threshold;
+}
+
+/**
+ * Snap an arbitrary number to the nearest `RAW_TOKEN_THRESHOLD_STEP` multiple.
  * Non-finite or non-positive values (and anything that rounds down to 0)
- * become 0 (disabled). Keeps `minRawCharThreshold` always a multiple of the
+ * become 0 (disabled). Keeps `minRawTokenThreshold` always a multiple of the
  * step regardless of where the value came from (settings file, cycler, command).
  */
-export function quantizeRawCharThreshold(value: number): number {
+export function quantizeRawTokenThreshold(value: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
-  return Math.round(value / RAW_CHAR_THRESHOLD_STEP) * RAW_CHAR_THRESHOLD_STEP;
+  return Math.round(value / RAW_TOKEN_THRESHOLD_STEP) * RAW_TOKEN_THRESHOLD_STEP;
 }
 
 /**
@@ -33,7 +46,7 @@ export function quantizeRawCharThreshold(value: number): number {
  * inputs so it can be unit-tested without a running extension.
  *
  *  - summarized: at least one batch had its summary persisted
- *  - skipped-below-threshold: every batch was skipped solely for being below minRawCharThreshold
+ *  - skipped-below-threshold: every batch was skipped solely for being below minRawTokenThreshold
  *  - skipped-oversized: every batch was skipped solely because its summary was larger than the raw text
  *  - skipped-mixed: nothing was summarized, but more than one skip reason applied
  *

@@ -17,7 +17,7 @@ import { Container, Text, SettingsList, type SettingItem } from "@earendil-works
 import { DynamicBorder, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { buildPruneTree, TreeBrowser } from "./tree-browser.js";
 import { normalizeSummaryToolCallRefs, unwrapSummaryForDisplay } from "./summary-refs.js";
-import { RAW_CHAR_THRESHOLD_STEP, quantizeRawCharThreshold } from "./prune-threshold.js";
+import { RAW_TOKEN_THRESHOLD_STEP, quantizeRawTokenThreshold } from "./prune-threshold.js";
 import { getSupportedThinkingLevels } from "./summarizer.js";
 import type { ToolCallIndexer } from "./indexer.js";
 
@@ -155,16 +155,13 @@ function batchingModeDescription(mode: ContextPruneConfig["batchingMode"]): stri
   return "Per agent message: merges all assistant turns between two user messages into one summary. Fewer, larger summaries per conversation exchange.";
 }
 
-const MIN_RAW_CHAR_PRESETS = Array.from(
-  { length: 11 },
-  (_, i) => i * RAW_CHAR_THRESHOLD_STEP,
-);
+const MIN_RAW_TOKEN_PRESETS = [0, 50, 100, 200, 300, 500, 1000];
 
-function minRawCharThresholdDescription(threshold: number): string {
+function minRawTokenThresholdDescription(threshold: number): string {
   if (threshold <= 0) {
-    return "Summarize every batch (disabled). Press Enter/Space to cycle in 100-char steps.";
+    return "Summarize every batch (disabled). Press Enter/Space to cycle in 50-token steps.";
   }
-  return `Skip batches whose raw tool output is below ${threshold} chars (no summarizer LLM call). Steps in 100-char increments; press Enter/Space to cycle.`;
+  return `Skip batches whose raw tool output is below ${threshold} tokens (no summarizer LLM call). Steps in 50-token increments; press Enter/Space to cycle.`;
 }
 
 function remindUnprunedCountDescription(config: ContextPruneConfig): string {
@@ -222,11 +219,11 @@ Batching mode:
   - agent-message: all assistant turns between two consecutive user messages are merged into one summary.
     Use this when a single user request triggers many back-to-back tool rounds that belong together.
 
-Min raw chars (minRawCharThreshold):
+Min raw tokens (minRawTokenThreshold):
   Skip the summarizer LLM call for any batch whose raw tool-output is below this many
-  characters (0 = always summarize). The summary of a tiny batch is almost always larger
+  TOKENS (0 = always summarize). A tiny batch's summary is almost always larger
   than the raw content, so skipping avoids wasted calls while still advancing the compression
-  frontier past those turns. Steps in 100-char increments; cycle in /CoACT settings.
+  frontier past those turns. Steps in 50-token increments; cycle in /CoACT settings.
 
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
@@ -483,11 +480,11 @@ export function registerCommands(
               description: batchingModeDescription(config.batchingMode),
             },
             {
-              id: "minRawCharThreshold",
-              label: "Min raw chars",
-              values: MIN_RAW_CHAR_PRESETS.map(String),
-              currentValue: String(config.minRawCharThreshold),
-              description: minRawCharThresholdDescription(config.minRawCharThreshold),
+              id: "minRawTokenThreshold",
+              label: "Min raw tokens",
+              values: MIN_RAW_TOKEN_PRESETS.map(String),
+              currentValue: String(config.minRawTokenThreshold),
+              description: minRawTokenThresholdDescription(config.minRawTokenThreshold),
             },
           ];
 
@@ -538,11 +535,11 @@ export function registerCommands(
               if (batchingItem) {
                 batchingItem.description = batchingModeDescription(newConfig.batchingMode);
               }
-            } else if (id === "minRawCharThreshold") {
-              newConfig.minRawCharThreshold = quantizeRawCharThreshold(Number(newValue) || 0);
-              const minRawItem = items.find((item) => item.id === "minRawCharThreshold");
+            } else if (id === "minRawTokenThreshold") {
+              newConfig.minRawTokenThreshold = quantizeRawTokenThreshold(Number(newValue) || 0);
+              const minRawItem = items.find((item) => item.id === "minRawTokenThreshold");
               if (minRawItem) {
-                minRawItem.description = minRawCharThresholdDescription(newConfig.minRawCharThreshold);
+                minRawItem.description = minRawTokenThresholdDescription(newConfig.minRawTokenThreshold);
               }
             }
             currentConfig.value = newConfig;
@@ -608,7 +605,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `CoACT status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  min raw:  ${cfg.minRawCharThreshold > 0 ? `${cfg.minRawCharThreshold} chars` : "off"}\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `CoACT status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  min raw:  ${cfg.minRawTokenThreshold > 0 ? `${cfg.minRawTokenThreshold} tokens` : "off"}\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }
@@ -788,7 +785,7 @@ export function registerCommands(
 
           if (result.reason === "skipped-below-threshold") {
             ctx.ui.notify(
-              `CoACT: skipped ${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} (${result.belowThresholdToolCallCount} tool call${result.belowThresholdToolCallCount === 1 ? "" : "s"}, ${result.rawCharCount} raw chars) — below minRawCharThreshold (${currentConfig.value.minRawCharThreshold}); frontier advanced past this range`,
+              `CoACT: skipped ${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} (${result.belowThresholdToolCallCount} tool call${result.belowThresholdToolCallCount === 1 ? "" : "s"}, ${result.rawCharCount} raw chars) — below minRawTokenThreshold (${currentConfig.value.minRawTokenThreshold} tokens); frontier advanced past this range`,
               "info"
             );
             break;
@@ -798,7 +795,7 @@ export function registerCommands(
             const oversizeLine = `CoACT: skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`;
             if (result.reason === "skipped-mixed" && result.belowThresholdBatchCount > 0) {
               ctx.ui.notify(
-                `${oversizeLine}\n(${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} also skipped — below minRawCharThreshold)`,
+                `${oversizeLine}\n(${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} also skipped — below minRawTokenThreshold)`,
                 "warning"
               );
             } else {

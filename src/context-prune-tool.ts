@@ -102,7 +102,7 @@ export function registerContextPruneTool(
             content: [
               {
                 type: "text",
-                text: `Context prune skipped ${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} (${result.belowThresholdToolCallCount} tool call${result.belowThresholdToolCallCount === 1 ? "" : "s"}): the raw tool results (${result.rawCharCount} chars) were below the configured minRawCharThreshold. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
+                text: `Context prune skipped ${result.belowThresholdBatchCount} batch${result.belowThresholdBatchCount === 1 ? "" : "es"} (${result.belowThresholdToolCallCount} tool call${result.belowThresholdToolCallCount === 1 ? "" : "s"}): the raw tool results were below the configured minRawTokenThreshold. The original tool results were kept, and the prune frontier advanced so the next prune starts after this range.`,
               },
             ],
             details: result,
@@ -112,7 +112,7 @@ export function registerContextPruneTool(
         if (result.reason === "skipped-oversized" || result.reason === "skipped-mixed") {
           const belowLine =
             result.reason === "skipped-mixed" && result.belowThresholdBatchCount > 0
-              ? ` ${result.belowThresholdBatchCount} additional batch${result.belowThresholdBatchCount === 1 ? "" : "es"} were skipped because they were below the minRawCharThreshold.`
+              ? ` ${result.belowThresholdBatchCount} additional batch${result.belowThresholdBatchCount === 1 ? "" : "es"} were skipped because they were below the minRawTokenThreshold.`
               : "";
           return {
             content: [

@@ -159,7 +159,7 @@ The extension registers the `/pruner` command:
 5. **Summarizer thinking** — cycle through the thinking/reasoning level used for summarizer calls
 6. **Remind unpruned count** — toggle the agentic-auto `<pruner-note>` reminder
 7. **Batching mode** — cycle between per-turn and per-agent-message summaries
-8. **Min raw chars** — cycle presets for the minimum raw tool-output chars before a summarizer call is made (0 disables)
+8. **Min raw tokens** — cycle presets for the minimum raw tool-output tokens before a summarizer call is made (0 disables)
 
 All changes are saved immediately to `~/.pi/agent/context-prune/settings.json` and reflected in the footer status widget when it is enabled.
 
@@ -212,12 +212,12 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"agent-message"` |
 | `remindUnprunedCount` | `true` / `false` | `true` |
 | `batchingMode` | `"turn"`, `"agent-message"` | `"turn"` |
-| `minRawCharThreshold` | integer >= 0 (0 disables) | `0` |
+| `minRawTokenThreshold` | integer >= 0 (0 disables) | `0` |
 
 - `showPruneStatusLine: true` keeps the prune footer widget and the automatic queued-turn notice visible. Turn it off if you want pruning to stay active without the extra status noise.
 - `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
 - `batchingMode: "turn"` (default) summarizes each assistant turn independently; `"agent-message"` merges all turns between two user messages into one summary.
-- `minRawCharThreshold: 0` (default, always summarize) can be raised to skip the summarizer LLM call for batches whose raw tool-output is below the threshold. A tiny batch's summary is almost always larger than the raw text it would replace, so skipping avoids wasted calls; the original results stay in context and the prune frontier still advances past those turns.
+- `minRawTokenThreshold: 0` (default, always summarize) can be raised to skip the summarizer LLM call for batches whose raw tool-output is below the threshold (in tokens). A tiny batch's summary is almost always larger than the raw text it would replace, so skipping avoids wasted calls; the original results stay in context and the prune frontier still advances past those turns.
 
 - `summarizerModel: "default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
 - `summarizerThinking: "default"` preserves old behavior: no explicit thinking/reasoning option is added to summarizer calls.

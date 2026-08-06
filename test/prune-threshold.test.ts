@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   batchRawCharCount,
-  isBelowRawCharThreshold,
+  batchRawTokenCount,
+  isBelowRawTokenThreshold,
   computeFlushOutcome,
-  quantizeRawCharThreshold,
+  quantizeRawTokenThreshold,
 } from "../src/prune-threshold.ts";
 import { countTokens } from "../src/tokens.ts";
 import type { CapturedBatch } from "../src/types.ts";
@@ -30,20 +31,28 @@ test("batchRawCharCount sums all tool-result text lengths", () => {
   assert.equal(batchRawCharCount(makeBatch(["abc", "de", "f"])), 6);
 });
 
-test("isBelowRawCharThreshold is disabled when threshold is 0", () => {
-  assert.equal(isBelowRawCharThreshold(makeBatch(["x"]), 0), false);
-  assert.equal(isBelowRawCharThreshold(makeBatch([]), 0), false);
+test("batchRawTokenCount sums tool-result tokens (fallback chars/4)", () => {
+  // countTokens falls back to ceil(len/4) when gpt-tokenizer isn't resolvable
+  // in the test environment, so use strings whose token count is unambiguous.
+  assert.equal(batchRawTokenCount(makeBatch([]), countTokens), 0);
+  assert.equal(batchRawTokenCount(makeBatch(["abcd"]), countTokens), 1); // 4 chars -> 1 token
+  assert.equal(batchRawTokenCount(makeBatch(["abcd", "abcdefgh"]), countTokens), 3); // 1 + 2
 });
 
-test("isBelowRawCharThreshold uses an inclusive boundary", () => {
-  // Exactly at the threshold -> NOT below (should be summarized).
-  assert.equal(isBelowRawCharThreshold(makeBatch(["abc"]), 3), false);
-  assert.equal(isBelowRawCharThreshold(makeBatch(["ab"]), 3), true);
+test("isBelowRawTokenThreshold is disabled when threshold is 0", () => {
+  assert.equal(isBelowRawTokenThreshold(makeBatch(["x"]), 0, countTokens), false);
+  assert.equal(isBelowRawTokenThreshold(makeBatch([]), 0, countTokens), false);
 });
 
-test("isBelowRawCharThreshold skips empty-result batches under a threshold", () => {
-  assert.equal(isBelowRawCharThreshold(makeBatch([""]), 1), true);
-  assert.equal(isBelowRawCharThreshold(makeBatch([""]), 0), false);
+test("isBelowRawTokenThreshold: small batch below, large batch not below", () => {
+  // "a" -> 1 token; threshold 50 -> below
+  assert.equal(isBelowRawTokenThreshold(makeBatch(["a"]), 50, countTokens), true);
+  // 4000 chars -> ceil(4000/4)=1000 tokens; threshold 50 -> not below
+  const big = "x".repeat(4000);
+  assert.equal(isBelowRawTokenThreshold(makeBatch([big]), 50, countTokens), false);
+  // empty result under a positive threshold -> below
+  assert.equal(isBelowRawTokenThreshold(makeBatch([""]), 1, countTokens), true);
+  assert.equal(isBelowRawTokenThreshold(makeBatch([""]), 0, countTokens), false);
 });
 
 test("computeFlushOutcome maps every attainable count combination", () => {
@@ -62,17 +71,18 @@ test("computeFlushOutcome is order-independent within a single skip reason", () 
   assert.equal(computeFlushOutcome(0, 0, 1), "skipped-below-threshold");
 });
 
-test("quantizeRawCharThreshold snaps to the nearest 100-char step", () => {
-  assert.equal(quantizeRawCharThreshold(0), 0);
-  assert.equal(quantizeRawCharThreshold(300), 300);
-  assert.equal(quantizeRawCharThreshold(349), 300);
-  assert.equal(quantizeRawCharThreshold(350), 400);
-  assert.equal(quantizeRawCharThreshold(50), 100);
-  assert.equal(quantizeRawCharThreshold(1234), 1200);
+test("quantizeRawTokenThreshold snaps to the nearest 50-token step", () => {
+  assert.equal(quantizeRawTokenThreshold(0), 0);
+  assert.equal(quantizeRawTokenThreshold(50), 50);
+  assert.equal(quantizeRawTokenThreshold(74), 50);
+  assert.equal(quantizeRawTokenThreshold(75), 100);
+  assert.equal(quantizeRawTokenThreshold(124), 100);
+  assert.equal(quantizeRawTokenThreshold(125), 150);
+  assert.equal(quantizeRawTokenThreshold(1234), 1250);
   // invalid -> disabled
-  assert.equal(quantizeRawCharThreshold(-5), 0);
-  assert.equal(quantizeRawCharThreshold(NaN), 0);
-  assert.equal(quantizeRawCharThreshold(Infinity), 0);
+  assert.equal(quantizeRawTokenThreshold(-5), 0);
+  assert.equal(quantizeRawTokenThreshold(NaN), 0);
+  assert.equal(quantizeRawTokenThreshold(Infinity), 0);
 });
 
 test("countTokens returns a positive estimate (real tokenizer or chars/4 fallback)", () => {

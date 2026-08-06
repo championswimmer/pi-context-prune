@@ -186,10 +186,10 @@ export interface ContextPruneConfig {
    */
   batchingMode: BatchingMode;
   /**
-   * Minimum total raw tool-result characters required before a summarizer call
+   * Minimum total raw tool-result TOKENS required before a summarizer call
    * is made. A value of 0 disables this pre-check. Default: 0 (disabled).
    */
-  minRawCharThreshold: number;
+  minRawTokenThreshold: number;
 }
 
 export const DEFAULT_CONFIG: ContextPruneConfig = {
@@ -200,7 +200,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   pruneOn: "agent-message",
   remindUnprunedCount: true,
   batchingMode: "turn",
-  minRawCharThreshold: 0,
+  minRawTokenThreshold: 0,
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────

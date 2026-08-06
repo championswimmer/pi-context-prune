@@ -78,7 +78,7 @@ Single source of truth for all interfaces and constants:
 - **`PRUNE_ON_MODES`** — `{ value, label }` array for interactive selectors.
 - **`BATCHING_MODES`** — `{ value, label }` array for interactive selectors.
 - **`SUMMARIZER_THINKING_LEVELS`** — `{ value, label }` array for interactive selectors.
-- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode, minRawCharThreshold }` stored in `~/.pi/agent/context-prune/settings.json`.
+- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode, minRawTokenThreshold }` stored in `~/.pi/agent/context-prune/settings.json`.
 - **`SummarizerStats`** — cumulative token/cost stats: `{ totalInputTokens, totalOutputTokens, totalCost, callCount }`. Persisted via `pi.appendEntry(CUSTOM_TYPE_STATS, ...)`.
 - **`ProgressCallback`** — `(index, total, batch, stage: "start" | "done" | "skipped") => void` — progress callback fired by `flushPending` when processing batches sequentially. Only used when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
 - **`BatchTextProgressCallback`** — `(index, total, batch, receivedChars) => void` — live callback fired while the summarizer streams text for the active batch in `/pruner now`.
@@ -185,7 +185,7 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
   5. **Summarizer thinking** — cycle through all `SummarizerThinking` levels.
   6. **Remind unpruned count** — toggle the agentic-auto `<pruner-note>` reminder.
   7. **Batching mode** — cycle between `"turn"` and `"agent-message"`.
-  8. **Min raw chars** — cycle presets (`0`, `100`, `200`, `300`, `500`, `1000`) for `minRawCharThreshold`.
+  8. **Min raw tokens** — cycle presets (`0`, `50`, `100`, `200`, `300`, `500`, `1000`) for `minRawTokenThreshold`.
   All changes are persisted to `settings.json` on every toggle and the footer widget is updated when enabled.
 - **`/pruner on|off`** — enables/disables pruning, saves config, calls `syncToolActivation()`, updates footer widget.
 - **`/pruner status`** — shows enabled state, summarizer model, thinking level, prune trigger, batching mode, status line visibility, and cumulative summarizer stats (calls, tokens, cost).
