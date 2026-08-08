@@ -750,10 +750,12 @@ export function registerCommands(
           }
 
           if (result.reason === "skipped-oversized") {
-            ctx.ui.notify(
-              `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
-              "warning"
-            );
+            if (currentConfig.value.notifySkipped) {
+              ctx.ui.notify(
+                `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
+                "warning"
+              );
+            }
             break;
           }
 

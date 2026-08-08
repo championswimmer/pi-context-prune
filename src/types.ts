@@ -178,6 +178,11 @@ export interface ContextPruneConfig {
    */
   remindUnprunedCount: boolean;
   /**
+   * Whether to show a warning notification when pruning is skipped because the
+   * generated summary would be larger than the raw tool output it replaces.
+   */
+  notifySkipped: boolean;
+  /**
    * Granularity of each pruning batch.
    * - "turn"          : one summary per assistant turn (default)
    * - "agent-message" : one summary per user → final-agent-message span
@@ -193,6 +198,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   summarizerThinking: "default",
   pruneOn: "agent-message",
   remindUnprunedCount: true,
+  notifySkipped: true,
   batchingMode: "turn",
 };
 
