@@ -68,15 +68,31 @@ export function wrapSummaryForContext(summaryText: string): string {
   return `${SUMMARY_CONTEXT_OPEN}\n${summaryText}\n${SUMMARY_CONTEXT_CLOSE}`;
 }
 
-export function unwrapSummaryForDisplay(content: string): string {
-  const trimmed = content.trim();
+export function unwrapSummaryForDisplay(content: string | unknown): string {
+  const raw =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((part) => {
+              if (!part || typeof part !== "object") return "";
+              if (!("type" in part) || (part as { type?: unknown }).type !== "text") return "";
+              return "text" in part && typeof (part as { text?: unknown }).text === "string"
+                ? (part as { text: string }).text
+                : "";
+            })
+            .filter(Boolean)
+            .join("\n")
+        : "";
+
+  const trimmed = raw.trim();
   if (!trimmed.startsWith(SUMMARY_CONTEXT_OPEN) || !trimmed.endsWith(SUMMARY_CONTEXT_CLOSE)) {
-    return content;
+    return raw;
   }
 
   const closeStart = trimmed.lastIndexOf(SUMMARY_CONTEXT_CLOSE);
   if (closeStart <= SUMMARY_CONTEXT_OPEN.length) {
-    return content;
+    return raw;
   }
 
   let inner = trimmed.slice(SUMMARY_CONTEXT_OPEN.length, closeStart).trim();
