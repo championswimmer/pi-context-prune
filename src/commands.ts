@@ -198,7 +198,7 @@ Usage:
   /pruner batching agent-message           One summary per user→final-agent-message span (merges all turns in a span)
   /pruner stats                            Show cumulative summarizer token/cost stats
   /pruner tree                             Browse pruned tool calls in a foldable tree (Ctrl-O opens selected summary)
-  /pruner now                              Flush pending tool calls immediately (shows live footer progress)
+  /pruner now                              Flush pending tool calls immediately (shows live widget progress above the editor)
   /pruner help                             Show this help
 
 Agentic-auto reminder:
