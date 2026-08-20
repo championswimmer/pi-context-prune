@@ -2,16 +2,14 @@
 
 A [Pi coding-agent](https://github.com/badlogic/pi-mono) extension that **summarizes completed tool-call batches**, prunes raw tool outputs from future LLM context, and exposes a `context_tree_query` escape hatch to recover any original output on demand.
 
-## Related Extensions
+## Check out my other Pi extensions
 
-Here are some other Pi extensions that work well alongside context pruning:
-
-*   **[pi-context-usage](https://github.com/championswimmer/pi-context-usage) ([npm](https://www.npmjs.com/package/pi-context-usage))**
-    *   **What it does:** Visualizes the current size of your LLM context and breaks it down to show exactly what is taking up space (system prompt, user messages, tool calls, tool results, etc.).
-    *   **Why use it:** It's the perfect way to see *why* you need pruning. You can use it to inspect your context before and after a prune to see exactly how much space the `pi-context-prune` extension just saved you.
-*   **[pi-cache-graph](https://github.com/championswimmer/pi-cache-graph) ([npm](https://www.npmjs.com/package/pi-cache-graph))**
-    *   **What it does:** Plots your provider's prefix cache hits and misses as a live graph inside the TUI.
-    *   **Why use it:** Pruning context directly impacts cache re-use. This extension lets you see the real-time effect of your chosen `pruneOn` mode on cache stability.
+- [![pi-auto-theme](https://img.shields.io/badge/🎨_pi--auto--theme-blue?style=flat-square)](https://github.com/championswimmer/pi-auto-theme) — Automatically syncs Pi's theme with your OS dark/light mode appearance in real-time.
+- [![pi-cache-graph](https://img.shields.io/badge/📊_pi--cache--graph-orange?style=flat-square)](https://github.com/championswimmer/pi-cache-graph) — Visualizes LLM prompt cache hit rates and token statistics across turns in your TUI.
+- [![pi-context-prune](https://img.shields.io/badge/✂️_pi--context--prune-green?style=flat-square)](https://github.com/championswimmer/pi-context-prune) — Automatically prunes verbose tool outputs from future LLM context while preserving full history.
+- [![pi-context-usage](https://img.shields.io/badge/🪟_pi--context--usage-purple?style=flat-square)](https://github.com/championswimmer/pi-context-usage) — Visualizes context window token distribution (system prompt, tools, messages, buffer) in a dot-grid summary.
+- [![pi-speedometer](https://img.shields.io/badge/⚡_pi--speedometer-yellow?style=flat-square)](https://github.com/championswimmer/pi-speedometer) — Displays live LLM generation speed (tokens/sec) and time-to-first-token (TTFT) in the status bar.
+- [![pi-subscription-meter](https://img.shields.io/badge/💳_pi--subscription--meter-red?style=flat-square)](https://github.com/championswimmer/pi-subscription-meter) — Surfaces subscription tiers, rate limits, and quota consumption across AI providers in a tabbed dialog.
 
 ---
 
