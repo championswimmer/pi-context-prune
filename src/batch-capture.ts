@@ -57,11 +57,17 @@ export function captureBatch(
  * @param branch            The session message branch (from ctx.sessionManager.getBranch())
  * @param indexer           The pruner indexer to check for already-summarized IDs
  * @param excludeToolNames  Optional tool names to skip (e.g. context_prune itself)
+ * @param activeToolCallIds Optional whitelist of toolCallIds that are in the current
+ *                          compaction-aware context (from buildContextEntries). When
+ *                          provided, only tool calls whose IDs appear here are eligible.
+ *                          This prevents capturing tool results from before compaction,
+ *                          sibling branches, or forked-away history.
  */
 export function captureUnindexedBatchesFromSession(
   branch: any[],
   indexer: { isSummarized(id: string): boolean },
-  excludeToolNames: string[] = []
+  excludeToolNames: string[] = [],
+  activeToolCallIds?: Set<string>,
 ): CapturedBatch[] {
   // branch is SessionEntry[]. Each message entry has { type: "message", message: AgentMessage }.
   // We must unwrap the SessionEntry wrapper before accessing role/toolCallId.
@@ -113,6 +119,7 @@ export function captureUnindexedBatchesFromSession(
       if (!id) return false;
       if (indexer.isSummarized(id)) return false;
       if (excludeToolNames.includes(tc.name)) return false;
+      if (activeToolCallIds && !activeToolCallIds.has(id)) return false;
       return resultMap.has(id);
     });
 

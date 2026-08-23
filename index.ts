@@ -112,6 +112,36 @@ export default function (pi: ExtensionAPI) {
     pendingBatches.unshift(...batches);
   };
 
+  /**
+   * Extract the set of toolCallIds that are in the current compaction-aware
+   * context (honors `/tree`, `/fork`, and compaction boundaries).
+   * Returns null when buildContextEntries is unavailable or fails — callers
+   * must fail closed (skip session scan) rather than scan the full branch.
+   */
+  const resolveActiveToolCallIds = (ctx: any): Set<string> | null => {
+    const sm = ctx?.sessionManager;
+    if (!sm || typeof sm.buildContextEntries !== "function") return null;
+    let entries: unknown[];
+    try {
+      entries = sm.buildContextEntries();
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(entries)) return null;
+    const ids = new Set<string>();
+    for (const e of entries) {
+      const entry = e as any;
+      if (
+        entry?.type === "message" &&
+        entry.message?.role === "toolResult" &&
+        typeof entry.message.toolCallId === "string"
+      ) {
+        ids.add(entry.message.toolCallId);
+      }
+    }
+    return ids;
+  };
+
   const persistBatchIndex = (batch: CapturedBatch, appendEntry: (customType: string, data?: unknown) => void) => {
     const records = batch.toolCalls.map((tc) => ({
       toolCallId: tc.toolCallId,
@@ -135,8 +165,21 @@ export default function (pi: ExtensionAPI) {
   const capturePendingBatches = (ctx: any): CapturedBatch[] => {
     let batches: CapturedBatch[] = [];
     try {
-      const branch = ctx.sessionManager.getBranch();
-      batches = captureUnindexedBatchesFromSession(branch, indexer, [CONTEXT_PRUNE_TOOL_NAME]);
+      // Only scan tool results that are in the current compaction-aware context.
+      // buildContextEntries honors /tree leaf moves, /fork boundaries, and
+      // compaction firstKeptEntryId. Fail closed when it is unavailable.
+      const activeToolCallIds = resolveActiveToolCallIds(ctx);
+      if (activeToolCallIds) {
+        const branch = ctx.sessionManager.getBranch();
+        batches = captureUnindexedBatchesFromSession(
+          branch,
+          indexer,
+          [CONTEXT_PRUNE_TOOL_NAME],
+          activeToolCallIds,
+        );
+      } else {
+        batches = pendingBatches.slice();
+      }
     } catch {
       batches = pendingBatches.slice();
     }
