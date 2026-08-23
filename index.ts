@@ -24,7 +24,8 @@ import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, setPruneStatusWidget } from "./src/commands.js";
 import { handleViewerSessionShutdown } from "./src/viewer-server.js";
 import { formatSummaryToolCallRefs, makeSummaryDetails, wrapSummaryForContext } from "./src/summary-refs.js";
-import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, FlushOptions } from "./src/types.js";
+import { summaryToolCallKey } from "./src/summary-refs.js";
+import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, FlushOptions, SummarizeResult } from "./src/types.js";
 import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
@@ -61,6 +62,14 @@ export default function (pi: ExtensionAPI) {
   const pendingBatches: CapturedBatch[] = [];
   let isFlushing = false;
   let reminderWatermark = 0;
+
+  // Prepared summaries from the current session that succeeded but could not yet
+  // be committed (because a sibling batch failed before them in commit order, or
+  // because they were computed during a flush that was aborted). Keyed by the
+  // sorted toolCallId set (summaryToolCallKey). Retries hit this cache instead of
+  // re-invoking the LLM. Entries are removed once committed and cleared on
+  // session/branch changes.
+  const preparedSummaryCache = new Map<string, SummarizeResult>();
 
   type FlushResult =
     | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
@@ -240,19 +249,29 @@ export default function (pi: ExtensionAPI) {
         flushConcurrency: currentConfig.value.flushConcurrency,
         pooled: Boolean(options.onProgress),
         signal: options.signal,
-        summarizeOne: (batch, _index, onTextProgress) =>
-          summarizeBatch(batch, currentConfig.value, ctx, {
+        summarizeOne: (batch, _index, onTextProgress) => {
+          // Hit the prepared-summary cache so retries don't re-pay the LLM.
+          const key = summaryToolCallKey(batch.toolCalls.map((tc) => tc.toolCallId));
+          const cached = preparedSummaryCache.get(key);
+          if (cached) return cached;
+          return summarizeBatch(batch, currentConfig.value, ctx, {
             signal: options.signal,
             onTextProgress,
-          }),
+          }).then((result) => {
+            if (result) preparedSummaryCache.set(key, result);
+            return result;
+          });
+        },
         onStatus: (text) => setPruneStatusWidget(ctx, currentConfig.value, text),
         onProgress: options.onProgress,
         onBatchTextProgress: options.onBatchTextProgress,
       });
 
-      // Process results in order; stop at first null on a non-pre-skip slot.
-      // Batches before the first failure are persisted; remaining are restored to
-      // pendingBatches so they are retried on the next flush.
+      // Process results in order. Unlike the old break-on-first-null loop, we
+      // commit every successful batch independently — batches are independent.
+      // Failed batches are tracked so the frontier stops short of them (the
+      // frontier must remain a contiguous committed prefix so retries don't get
+      // trimmed away by trimBatchToPendingRange).
       const processedBatches: CapturedBatch[] = [];
       let totalRawCharCount = 0;
       let totalSummaryCharCount = 0;
@@ -260,7 +279,7 @@ export default function (pi: ExtensionAPI) {
       let prunedBatchCount = 0;
       let preSkipCount = 0;
       const oversizedBatches: CapturedBatch[] = [];
-      let firstFailureIndex = -1;
+      const failedIndices: number[] = [];
       const resolved = resolveModel(currentConfig.value, ctx);
       const summarizerModel =
         resolved && typeof resolved === "object" && "provider" in resolved && "id" in resolved
@@ -281,8 +300,10 @@ export default function (pi: ExtensionAPI) {
 
         const result = results[i];
         if (!result) {
-          firstFailureIndex = i;
-          break;
+          // Failed: keep the prepared summary in the cache for the next retry.
+          // Do NOT break — independent batches after this one may still commit.
+          failedIndices.push(i);
+          continue;
         }
 
         const rawChars = batchRawCharCount(batch);
@@ -324,6 +345,9 @@ export default function (pi: ExtensionAPI) {
               indexer.recordSummary(summaryText, batchDetails);
             }
             prunedBatchCount++;
+            // Committed to session + index — drop the prepared cache entry so
+            // it can't be reused after the underlying tool calls are summarized.
+            preparedSummaryCache.delete(summaryToolCallKey(batch.toolCalls.map((tc) => tc.toolCallId)));
           } else {
             oversizedBatches.push(batch);
           }
@@ -340,27 +364,54 @@ export default function (pi: ExtensionAPI) {
         processedBatches.push(batch);
       }
 
-      // Restore unprocessed batches (those at and after the first failure)
-      if (firstFailureIndex >= 0) {
-        restoreBatches(batches.slice(firstFailureIndex));
-      }
+      // Restore only the failed batches so they are retried next flush.
+      // Successful batches were already committed (indexed + persisted).
+      const failedBatches = failedIndices.map((idx) => batches[idx]!);
+      if (failedBatches.length > 0) restoreBatches(failedBatches);
 
       if (processedBatches.length === 0) {
-        // Nothing was persisted (all calls failed or first call failed)
+        // Nothing was committed (all eligible calls failed or first call failed).
+        // Prepared summaries are retained in the cache for the retry.
         setPruneStatusWidget(ctx, currentConfig.value, statsAccum.getStats());
         return { ok: false, reason: "summarizer-failed" };
       }
 
-      // Advance frontier to the last batch we actually processed.
-      const lastBatch = processedBatches[processedBatches.length - 1];
-      const lastTC = lastBatch.toolCalls[lastBatch.toolCalls.length - 1];
+      // The frontier must remain a contiguous committed prefix — it must not
+      // advance past any failed batch, or trimBatchToPendingRange would drop
+      // the failed batch on the next flush. Find the last processed batch that
+      // comes before the first failure.
+      const firstFailure = failedIndices[0];
+      let frontierBatch: CapturedBatch | null = null;
+      if (firstFailure === undefined) {
+        frontierBatch = processedBatches[processedBatches.length - 1]!;
+      } else {
+        const firstFailureOriginalIndex = batches.indexOf(batches[firstFailure]!);
+        for (const pb of processedBatches) {
+          if (batches.indexOf(pb) < firstFailureOriginalIndex) frontierBatch = pb;
+          else break;
+        }
+      }
+      if (!frontierBatch) {
+        // Everything committed was after the first failure — keep old frontier,
+        // don't advance into uncommitted territory.
+        setPruneStatusWidget(ctx, currentConfig.value, statsAccum.getStats());
+        return {
+          ok: true,
+          reason: prunedBatchCount === 0 ? "skipped-oversized" : "flushed",
+          batchCount: processedBatches.length,
+          toolCallCount: totalToolCallCount,
+          rawCharCount: totalRawCharCount,
+          summaryCharCount: totalSummaryCharCount,
+        };
+      }
+      const lastTC = frontierBatch.toolCalls[frontierBatch.toolCalls.length - 1]!;
       // Nothing pruned (all pre-skip and/or oversized) → same outcome family as oversized.
       const nothingPruned = prunedBatchCount === 0;
       const frontierSnapshot: PruneFrontier = {
         lastAttemptedToolCallId: lastTC.toolCallId,
         lastAttemptedToolName: lastTC.toolName,
-        lastAttemptedTurnIndex: lastBatch.turnIndex,
-        lastAttemptedTimestamp: lastBatch.timestamp,
+        lastAttemptedTurnIndex: frontierBatch.turnIndex,
+        lastAttemptedTimestamp: frontierBatch.timestamp,
         attemptedBatchCount: processedBatches.length,
         attemptedToolCallCount: totalToolCallCount,
         rawCharCount: totalRawCharCount,
@@ -472,6 +523,7 @@ export default function (pi: ExtensionAPI) {
     // Clear any batches queued before the session reload
     pendingBatches.length = 0;
     reminderWatermark = 0;
+    preparedSummaryCache.clear();
 
     // Update footer status
     setPruneStatusWidget(ctx, currentConfig.value, statsAccum.getStats());
@@ -493,6 +545,7 @@ export default function (pi: ExtensionAPI) {
     // Pending batches belong to the old branch — discard them
     pendingBatches.length = 0;
     reminderWatermark = 0;
+    preparedSummaryCache.clear();
   });
 
   // ── turn_end: capture batch, flush immediately or queue ──────────────────
