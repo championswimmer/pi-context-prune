@@ -411,10 +411,12 @@ export default function (pi: ExtensionAPI) {
     // Toggle context_prune tool activation for agentic-auto mode
     syncToolActivation();
 
-    ctx.ui.notify(
-      `pruner loaded — pruning ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${currentConfig.value.summarizerModel}`,
-      "info"
-    );
+    if (currentConfig.value.showStartupNotice) {
+      ctx.ui.notify(
+        `pruner loaded — pruning ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${currentConfig.value.summarizerModel}`,
+        "info"
+      );
+    }
   });
 
   // Rebuild index and stats after tree navigation too (branch may have different history)

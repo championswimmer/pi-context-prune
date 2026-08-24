@@ -1,6 +1,6 @@
 {
   "name": "pi-context-prune",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Pi extension package for pruning future context while preserving original tool-call history.",
   "type": "module",
   "scripts": {
@@ -25,9 +25,15 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.84.1",
+    "@earendil-works/pi-coding-agent": "^0.84.1",
+    "@earendil-works/pi-tui": "^0.84.1",
+    "@sinclair/typebox": "^0.34.52"
   }
 }

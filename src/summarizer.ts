@@ -1,4 +1,3 @@
-import { stream } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type {
@@ -95,14 +94,21 @@ export async function summarizeBatch(
       return null;
     }
 
+    const provider = ctx.modelRegistry.getProvider(model.provider);
+    if (!provider) {
+      ctx.ui.notify(`pruner: summarization failed: unknown provider \"${model.provider}\"`, "error");
+      return null;
+    }
+
     const serialized = serializeBatchForSummarizer(batch);
     const userMessage =
       SYSTEM_PROMPT + "\n\n<tool-call-batch>\n" + serialized + "\n</tool-call-batch>";
 
-    // Pass the abort signal so the underlying fetch is cancelled immediately
-    // when the user presses Esc while the tool is running.
-    const responseStream = stream(
-      model,
+    // Use the provider-owned stream API directly. The compatibility registry
+    // facade still exposes auth/header resolution, but no longer exposes a
+    // top-level stream() helper of its own.
+    const responseStream = provider.stream(
+      auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model,
       {
         messages: [
           {
@@ -112,7 +118,13 @@ export async function summarizeBatch(
           },
         ],
       },
-      { apiKey: auth.apiKey, headers: auth.headers, signal: options.signal, ...summarizerThinkingOptions(config) }
+      {
+        apiKey: auth.apiKey,
+        headers: auth.headers,
+        env: auth.env,
+        signal: options.signal,
+        ...summarizerThinkingOptions(config),
+      }
     );
 
     let lastReportedChars = -1;

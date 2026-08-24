@@ -167,6 +167,14 @@ function pruneStatusLineDescription(config: ContextPruneConfig): string {
   return `Hide the prune footer status line and queued turn notifications. Currently ${base}.`;
 }
 
+function startupNoticeDescription(config: ContextPruneConfig): string {
+  const base = config.showStartupNotice ? "ON" : "OFF";
+  if (config.showStartupNotice) {
+    return `Show the passive startup notice when the pruner loads (for example: \"pruner loaded — pruning ON | model: ...\"). Currently ${base}. Manual command output and errors still appear.`;
+  }
+  return `Hide the passive startup notice when the pruner loads. Currently ${base}. Manual command output and errors still appear.`;
+}
+
 const HELP_TEXT = `pruner — automatically summarizes tool-call outputs to keep context lean.
 
 Usage:
@@ -190,7 +198,7 @@ Usage:
   /pruner batching agent-message           One summary per user→final-agent-message span (merges all turns in a span)
   /pruner stats                            Show cumulative summarizer token/cost stats
   /pruner tree                             Browse pruned tool calls in a foldable tree (Ctrl-O opens selected summary)
-  /pruner now                              Flush pending tool calls immediately (shows live footer progress)
+  /pruner now                              Flush pending tool calls immediately (shows live widget progress above the editor)
   /pruner help                             Show this help
 
 Agentic-auto reminder:
@@ -397,6 +405,13 @@ export function registerCommands(
               description: pruneStatusLineDescription(config),
             },
             {
+              id: "showStartupNotice",
+              label: "Startup notice",
+              values: ["true", "false"],
+              currentValue: String(config.showStartupNotice),
+              description: startupNoticeDescription(config),
+            },
+            {
               id: "pruneOn",
               label: "Prune trigger",
               values: PRUNE_ON_MODES.map((m) => m.value),
@@ -474,6 +489,12 @@ export function registerCommands(
               const statusLineItem = items.find((item) => item.id === "showPruneStatusLine");
               if (statusLineItem) {
                 statusLineItem.description = pruneStatusLineDescription(newConfig);
+              }
+            } else if (id === "showStartupNotice") {
+              newConfig.showStartupNotice = newValue === "true";
+              const startupNoticeItem = items.find((item) => item.id === "showStartupNotice");
+              if (startupNoticeItem) {
+                startupNoticeItem.description = startupNoticeDescription(newConfig);
               }
             } else if (id === "pruneOn") {
               newConfig.pruneOn = newValue as ContextPruneConfig["pruneOn"];
@@ -573,7 +594,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  startup:  ${cfg.showStartupNotice ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }
