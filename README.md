@@ -214,11 +214,13 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `summarizerThinking` | `"default"`, `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` | `"default"` |
 | `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"agent-message"` |
 | `remindUnprunedCount` | `true` / `false` | `true` |
+| `notifySkipped` | `true` / `false` | `true` |
 | `batchingMode` | `"turn"` / `"agent-message"` | `"turn"` |
 
 - `showPruneStatusLine: true` keeps the prune footer widget and the automatic queued-turn notice visible. Turn it off if you want pruning to stay active without that extra status noise.
 - `showStartupNotice: true` shows the passive `pruner loaded — pruning ON/OFF | model: ...` info notice when a session starts. Turn it off if you want startup to stay quiet; manual command output and real errors still appear.
 - `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
+- `notifySkipped: false` silences the "skipped pruning" warning shown when a summary would be larger than the raw tool output it replaces (pruning is skipped in that case; only the notification is suppressed).
 - `batchingMode: "turn"` keeps one summary per assistant tool-using turn. Set it to `"agent-message"` to merge all assistant turns between two user messages into one summary.
 
 - `summarizerModel: "default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).

@@ -40,6 +40,8 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
         typeof merged.remindUnprunedCount === "boolean"
           ? merged.remindUnprunedCount
           : DEFAULT_CONFIG.remindUnprunedCount,
+      notifySkipped:
+        typeof merged.notifySkipped === "boolean" ? merged.notifySkipped : DEFAULT_CONFIG.notifySkipped,
     };
   } catch {
     return { ...DEFAULT_CONFIG };
