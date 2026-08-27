@@ -23,7 +23,15 @@ import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminde
 import { registerQueryTool } from "./src/query-tool.js";
 import { registerCommands, setPruneStatusWidget } from "./src/commands.js";
 import { formatSummaryToolCallRefs, makeSummaryDetails, wrapSummaryForContext } from "./src/summary-refs.js";
-import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, FlushOptions } from "./src/types.js";
+import type { SummaryToolCallRef } from "./src/summary-refs.js";
+import type {
+  ContextPruneConfig,
+  CapturedBatch,
+  IndexEntryData,
+  PruneFrontier,
+  FlushOptions,
+  SummaryMessageDetails,
+} from "./src/types.js";
 import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
@@ -162,7 +170,7 @@ export default function (pi: ExtensionAPI) {
 
     // Use pre-captured batches if provided (avoids double-capture when the
     // caller previewed the queue before opening the progress overlay).
-    let batches: CapturedBatch[] = options.previewedBatches ?? capturePendingBatches(ctx);
+    const batches: CapturedBatch[] = options.previewedBatches ?? capturePendingBatches(ctx);
 
     if (batches.length === 0) return { ok: false, reason: "empty" };
 
@@ -180,6 +188,9 @@ export default function (pi: ExtensionAPI) {
     let sessionManager: SessionAppender | undefined;
     if (delivery === "session") {
       try {
+        // SAFETY: pi's ExtensionContext exposes the SessionManager untyped from this
+        // package's perspective; it structurally satisfies SessionAppender
+        // (appendCustomEntry / appendCustomMessageEntry) in all pi versions we target.
         sessionManager = ctx.sessionManager as unknown as SessionAppender;
       } catch (err) {
         restoreBatches(batches);
@@ -233,6 +244,15 @@ export default function (pi: ExtensionAPI) {
       let totalToolCallCount = 0;
       const oversizedBatches: CapturedBatch[] = [];
       let firstFailureIndex = -1;
+      // Runtime delivery defers every summary to ONE steer message sent after the
+      // loop (see the coalesced send below). Session delivery persists each
+      // summary as it goes, as before.
+      const runtimeSummaryParts: {
+        summaryText: string;
+        batch: CapturedBatch;
+        summaryRefs: SummaryToolCallRef[];
+        batchDetails: SummaryMessageDetails;
+      }[] = [];
 
       for (let i = 0; i < batches.length; i++) {
         const result = results[i];
@@ -254,26 +274,26 @@ export default function (pi: ExtensionAPI) {
 
         const batchDetails = makeSummaryDetails(batch, summaryRefs);
 
+        if (shouldSkipOversized) {
+          oversizedBatches.push(batch);
+          processedBatches.push(batch);
+          continue;
+        }
+
+        if (delivery === "runtime") {
+          // Collected and delivered as a single steer message after the loop.
+          runtimeSummaryParts.push({ summaryText, batch, summaryRefs, batchDetails });
+          continue;
+        }
+
         try {
-          if (!shouldSkipOversized) {
-            // Write one hidden summary message per turn and index its tool calls.
-            // `display: false` keeps the summary in future LLM context and session
-            // history without printing the full markdown block into Pi's main window.
-            if (delivery === "runtime") {
-              pi.sendMessage(
-                { customType: CUSTOM_TYPE_SUMMARY, content: summaryText, display: false, details: batchDetails },
-                { deliverAs: "steer" }
-              );
-              indexer.registerSummaryRefs(summaryRefs);
-              indexer.addBatch(batch, pi);
-            } else {
-              appendSummaryMessage(summaryText, batchDetails);
-              indexer.registerSummaryRefs(summaryRefs);
-              persistBatchIndex(batch, appendEntry);
-            }
-          } else {
-            oversizedBatches.push(batch);
-          }
+          // Write one hidden summary message per turn and index its tool calls.
+          // `display: false` keeps the summary in future LLM context and session
+          // history without printing the full markdown block into Pi's main window.
+          appendSummaryMessage(summaryText, batchDetails);
+          indexer.registerSummaryRefs(summaryRefs);
+          persistBatchIndex(batch, appendEntry);
+          processedBatches.push(batch);
         } catch (err) {
           // Persistence error mid-loop: stop here, restore this and remaining batches.
           if (isStaleContextError(err)) {
@@ -283,13 +303,63 @@ export default function (pi: ExtensionAPI) {
           }
           throw err;
         }
-
-        processedBatches.push(batch);
       }
 
       // Restore unprocessed batches (those at and after the first failure)
       if (firstFailureIndex >= 0) {
         restoreBatches(batches.slice(firstFailureIndex));
+      }
+
+      // Runtime delivery: send ALL batch summaries of this flush as ONE steer
+      // message. Pi drains its steer queue one message at a time and starts a new
+      // agent turn per drained message, so one steer message per batch makes every
+      // batch summary trigger its own no-input turn — each burning an LLM call —
+      // after the agent has already produced its final message. A single coalesced
+      // message lands all summaries in the LLM call that the pending tool result
+      // requires anyway (runtime flushes only happen mid-run, while the agent must
+      // still respond to a tool call), so no extra turns are started. Summaries
+      // still reach every subsequent turn, user- or extension-triggered: the agent
+      // loop drains the steer queue at each turn boundary, and when pi is idle a
+      // steer-delivered message is appended straight into the session.
+      if (delivery === "runtime" && runtimeSummaryParts.length > 0) {
+        try {
+          pi.sendMessage(
+            {
+              customType: CUSTOM_TYPE_SUMMARY,
+              content: runtimeSummaryParts.map((p) => p.summaryText).join("\n\n"),
+              display: false,
+              details: {
+                toolCallRefs: runtimeSummaryParts.flatMap((p) => p.batchDetails.toolCallRefs),
+                toolNames: runtimeSummaryParts.flatMap((p) => p.batchDetails.toolNames),
+                turnIndex: runtimeSummaryParts[0].batchDetails.turnIndex,
+                timestamp: Date.now(),
+              },
+            },
+            { deliverAs: "steer" }
+          );
+        } catch (err) {
+          // Nothing was delivered: re-queue every runtime batch for the next flush.
+          if (!isStaleContextError(err)) throw err;
+          restoreBatches(runtimeSummaryParts.map((p) => p.batch));
+          runtimeSummaryParts.length = 0;
+        }
+        // Persist index entries only after the summary message was delivered, so
+        // a failed send never leaves tool calls pruned (indexed) without their
+        // summary in context.
+        for (let i = 0; i < runtimeSummaryParts.length; i++) {
+          const part = runtimeSummaryParts[i];
+          try {
+            indexer.registerSummaryRefs(part.summaryRefs);
+            indexer.addBatch(part.batch, pi);
+            processedBatches.push(part.batch);
+          } catch (err) {
+            if (isStaleContextError(err)) {
+              restoreBatches(runtimeSummaryParts.slice(i).map((p) => p.batch));
+              break;
+            }
+            throw err;
+          }
+        }
       }
 
       if (processedBatches.length === 0) {
@@ -564,7 +634,7 @@ export default function (pi: ExtensionAPI) {
     // Append agentic-auto instructions to the system prompt
     const appended = AGENTIC_AUTO_SYSTEM_PROMPT;
     const original = event.systemPrompt ?? "";
-    const newPrompt = original + "\n\n" + appended;
+    const newPrompt = `${original}\n\n${appended}`;
     return { systemPrompt: newPrompt };
   });
 
