@@ -4,22 +4,34 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
-const packageJson = JSON.parse(
+function safeJsonParse(raw, label) {
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`Failed to parse ${label}: ${err.message}`);
+  }
+}
+
+const packageJson = safeJsonParse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  "package.json",
 );
 
 // Guard the published tarball contract so releases cannot regress to raw TypeScript.
 const packOutput = execFileSync(
   "npm",
   ["pack", "--dry-run", "--json", "--ignore-scripts"],
-  { cwd: packageRoot, encoding: "utf8" },
+  { cwd: packageRoot, encoding: "utf8", shell: true },
 );
-const packResults = JSON.parse(packOutput);
+const packResults = safeJsonParse(packOutput, "npm pack output");
+const packResultList = Array.isArray(packResults)
+  ? packResults
+  : Object.values(packResults);
 
 assert.deepEqual(packageJson.pi?.extensions, ["./dist/index.js"]);
-assert.equal(packResults.length, 1, "expected one npm pack result");
+assert.equal(packResultList.length, 1, "expected one npm pack result");
 
-const publishedFiles = new Set(packResults[0].files.map(({ path }) => path));
+const publishedFiles = new Set(packResultList[0].files.map(({ path }) => path));
 assert(publishedFiles.has("dist/index.js"), "dist/index.js is missing from the package");
 assert(
   publishedFiles.has("dist/index.js.map"),
