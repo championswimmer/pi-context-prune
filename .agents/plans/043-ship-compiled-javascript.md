@@ -20,8 +20,8 @@ steps:
   - phase: delivery
     steps:
       - "- [x] step 1: commit the implementation and push main"
-      - "- [ ] step 2: run the repository release mechanism with npm version minor to create v1.4.0"
-      - "- [ ] step 3: verify the release tag push and GitHub Actions publication workflow"
+      - "- [x] step 2: run the repository release mechanism with npm version minor to create v1.4.0"
+      - "- [x] step 3: verify the release tag push and GitHub Actions publication workflow"
 ---
 
 # 043-ship-compiled-javascript
@@ -51,5 +51,5 @@ Use `esbuild` directly to bundle `index.ts` and all local modules into one Node 
 
 ## Phase 4 — Delivery
 - [x] step 1: commit the implementation and push main
-- [ ] step 2: run the repository release mechanism with npm version minor to create v1.4.0
-- [ ] step 3: verify the release tag push and GitHub Actions publication workflow
+- [x] step 2: run the repository release mechanism with npm version minor to create v1.4.0
+- [x] step 3: verify the release tag push and GitHub Actions publication workflow
