@@ -3,9 +3,18 @@
   "version": "1.3.0",
   "description": "Pi extension package for pruning future context while preserving original tool-call history.",
   "type": "module",
+  "main": "./dist/index.js",
+  "exports": "./dist/index.js",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "build": "rm -rf dist && esbuild index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --sourcemap --external:@earendil-works/pi-ai --external:@earendil-works/pi-coding-agent --external:@earendil-works/pi-tui",
+    "check": "npm run build && npm run check:package",
+    "check:package": "node scripts/check-package.mjs",
+    "prepack": "npm run build && npm run check:package"
   },
   "keywords": [
     "pi-package"
@@ -21,19 +30,19 @@
   "homepage": "https://github.com/championswimmer/pi-context-prune#readme",
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./dist/index.js"
     ]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "@sinclair/typebox": "*"
+    "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.84.1",
     "@earendil-works/pi-coding-agent": "^0.84.1",
     "@earendil-works/pi-tui": "^0.84.1",
-    "@sinclair/typebox": "^0.34.52"
+    "@sinclair/typebox": "^0.34.52",
+    "esbuild": "^0.27.2"
   }
 }

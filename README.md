@@ -267,7 +267,8 @@ Or directly in `~/.pi/agent/context-prune/settings.json`:
 ## Architecture
 
 ```
-index.ts                    — entry point, wires events + modules
+index.ts                    — TypeScript source entry point, wires events + modules
+dist/index.js               — generated ESM bundle shipped in the npm package
 src/
   types.ts                  — shared types, constants, PruneOn modes
   config.ts                 — load/save ~/.pi/agent/context-prune/settings.json
