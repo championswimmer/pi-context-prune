@@ -1,5 +1,8 @@
 # pi-context-prune
 
+[![npm version](https://img.shields.io/npm/v/pi-context-prune?style=flat-square)](https://www.npmjs.com/package/pi-context-prune)
+[![npm downloads](https://img.shields.io/npm/dm/pi-context-prune?style=flat-square)](https://www.npmjs.com/package/pi-context-prune)
+
 A [Pi coding-agent](https://github.com/badlogic/pi-mono) extension that **summarizes completed tool-call batches**, prunes raw tool outputs from future LLM context, and exposes a `context_tree_query` escape hatch to recover any original output on demand.
 
 ## Check out my other Pi extensions
