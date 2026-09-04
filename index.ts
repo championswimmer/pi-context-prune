@@ -334,15 +334,17 @@ export default function (pi: ExtensionAPI) {
 
       setPruneStatusWidget(ctx, currentConfig.value, statsAccum.getStats());
 
-      // Notify about any oversized batches that were skipped
-      for (const batch of oversizedBatches) {
-        const batchRaw = batch.toolCalls.reduce((s, tc) => s + tc.resultText.length, 0);
-        const batchSummaryLen = results[batches.indexOf(batch)]?.summaryText.length ?? 0;
-        safeNotify(
-          ctx,
-          `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary was ${batchSummaryLen} chars vs ${batchRaw} raw chars; frontier advanced past this range`,
-          "warning"
-        );
+      // Respect notifySkipped for both automatic flushes and /pruner now.
+      if (currentConfig.value.notifySkipped) {
+        for (const batch of oversizedBatches) {
+          const batchRaw = batch.toolCalls.reduce((s, tc) => s + tc.resultText.length, 0);
+          const batchSummaryLen = results[batches.indexOf(batch)]?.summaryText.length ?? 0;
+          safeNotify(
+            ctx,
+            `pruner: skipped pruning turn ${batch.turnIndex} (${batch.toolCalls.length} tool call${batch.toolCalls.length === 1 ? "" : "s"}) — summary was ${batchSummaryLen} chars vs ${batchRaw} raw chars; frontier advanced past this range`,
+            "warning"
+          );
+        }
       }
 
       return {
