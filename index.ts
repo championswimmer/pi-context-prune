@@ -192,6 +192,45 @@ export default function (pi: ExtensionAPI) {
     const appendSummaryMessage = (content: string, details: unknown) =>
       sessionManager!.appendCustomMessageEntry(CUSTOM_TYPE_SUMMARY, content, false, details);
 
+    const batchRawCharTotal = (batch: CapturedBatch) =>
+      batch.toolCalls.reduce((s, tc) => s + tc.resultText.length, 0);
+    const minRawChars =
+      typeof currentConfig.value.minRawChars === "number" && currentConfig.value.minRawChars > 0
+        ? currentConfig.value.minRawChars
+        : 0;
+    if (minRawChars > 0) {
+      const worthwhile = batches.filter((batch) => batchRawCharTotal(batch) >= minRawChars);
+      if (worthwhile.length === 0) {
+        const lastBatch = batches[batches.length - 1];
+        const lastTC = lastBatch.toolCalls[lastBatch.toolCalls.length - 1];
+        const frontierSnapshot: PruneFrontier = {
+          lastAttemptedToolCallId: lastTC.toolCallId,
+          lastAttemptedToolName: lastTC.toolName,
+          lastAttemptedTurnIndex: lastBatch.turnIndex,
+          lastAttemptedTimestamp: lastBatch.timestamp,
+          attemptedBatchCount: batches.length,
+          attemptedToolCallCount: batches.reduce((s, b) => s + b.toolCalls.length, 0),
+          rawCharCount: batches.reduce((s, b) => s + batchRawCharTotal(b), 0),
+          summaryCharCount: 0,
+          outcome: "below-threshold",
+        };
+        try {
+          frontier.advance(frontierSnapshot);
+          if (delivery === "runtime") {
+            frontier.persist(pi);
+          } else {
+            appendEntry(CUSTOM_TYPE_FRONTIER, frontierSnapshot);
+          }
+        } catch (err) {
+          isFlushing = false;
+          return { ok: false, reason: isStaleContextError(err) ? "stale-context" : "failed", error: errorMessage(err) };
+        }
+        isFlushing = false;
+        return { ok: true, reason: "flushed", batchCount: 0, toolCallCount: 0, rawCharCount: 0, summaryCharCount: 0 };
+      }
+      batches = worthwhile;
+    }
+
     try {
       setPruneStatusWidget(ctx, currentConfig.value, "prune: summarizing…");
 

@@ -191,6 +191,13 @@ export interface ContextPruneConfig {
    *                     (all turns between two user messages are merged)
    */
   batchingMode: BatchingMode;
+  /**
+   * Minimum total raw tool-result characters a batch must have before it is
+   * sent to the summarizer. 0 disables the threshold (upstream default).
+   * Batches below the threshold never produce an API call or skipped-pruning
+   * warning; the frontier advances with outcome "below-threshold".
+   */
+  minRawChars: number;
 }
 
 export const DEFAULT_CONFIG: ContextPruneConfig = {
@@ -203,6 +210,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   remindUnprunedCount: true,
   notifySkipped: true,
   batchingMode: "turn",
+  minRawChars: 0,
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────
@@ -303,13 +311,14 @@ export interface SummarizerStats {
 }
 
 /** Outcome of the most recent completed prune attempt. */
-export type PruneFrontierOutcome = "summarized" | "skipped-oversized";
+export type PruneFrontierOutcome = "summarized" | "skipped-oversized" | "below-threshold";
 
 /**
  * Snapshot of the last successfully completed prune attempt boundary.
  *
- * This advances both when pruning succeeds and when a summary is rejected for
- * being larger than the raw tool-result text it would replace. Operational
+ * This advances when pruning succeeds, when a summary is rejected for being
+ * larger than the raw tool-result text it would replace, and when every pending
+ * batch is below `minRawChars` so the summarizer is never called. Operational
  * failures do not advance the frontier.
  */
 export interface PruneFrontier {
@@ -329,7 +338,7 @@ export interface PruneFrontier {
   rawCharCount: number;
   /** Character count of the rendered summary text that was produced */
   summaryCharCount: number;
-  /** Whether the attempt actually pruned or was skipped for being oversized */
+  /** Whether the attempt pruned, was skipped as oversized, or skipped as below-threshold */
   outcome: PruneFrontierOutcome;
 }
 
