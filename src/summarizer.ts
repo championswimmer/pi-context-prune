@@ -36,7 +36,26 @@ export function summarizerThinkingOptions(config: ContextPruneConfig): Record<st
  * config.summarizerModel === "default" => ctx.model
  * "provider/model-id" => ctx.modelRegistry.find(provider, modelId), fallback to ctx.model with warning
  */
-export function resolveModel(config: ContextPruneConfig, ctx: ExtensionContext): any {
+export /**
+ * Headers for the direct provider.stream() call. Pi's own request path adds
+ * session attribution headers for OpenCode providers; opencode-go rejects
+ * requests without `x-opencode-session` (HTTP 400 MissingSessionID), so the
+ * summarizer must add them itself when it bypasses that path.
+ */
+function summarizerHeaders(
+  provider: string,
+  authHeaders: Record<string, string> | undefined,
+  ctx: ExtensionContext
+): Record<string, string> | undefined {
+  if (provider !== "opencode" && provider !== "opencode-go") return authHeaders;
+  return {
+    ...(authHeaders ?? {}),
+    "x-opencode-session": ctx.sessionManager.getSessionId(),
+    "x-opencode-client": "pi",
+  };
+}
+
+function resolveModel(config: ContextPruneConfig, ctx: ExtensionContext): any {
   if (config.summarizerModel === "default") {
     return ctx.model;
   }
@@ -100,7 +119,7 @@ export async function summarizeBatch(
       return null;
     }
 
-    const serialized = serializeBatchForSummarizer(batch);
+    const serialized = serializeBatchForSummarizer(batch, config.summarizerMaxCharsPerResult);
     const userMessage =
       SYSTEM_PROMPT + "\n\n<tool-call-batch>\n" + serialized + "\n</tool-call-batch>";
 
@@ -120,7 +139,7 @@ export async function summarizeBatch(
       },
       {
         apiKey: auth.apiKey,
-        headers: auth.headers,
+        headers: summarizerHeaders(model.provider, auth.headers, ctx),
         env: auth.env,
         signal: options.signal,
         ...summarizerThinkingOptions(config),
