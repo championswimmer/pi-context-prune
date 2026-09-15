@@ -191,6 +191,14 @@ export interface ContextPruneConfig {
    *                     (all turns between two user messages are merged)
    */
   batchingMode: BatchingMode;
+  /**
+   * Maximum characters of each tool result that are shown to the summarizer.
+   * Longer results are cut and annotated with the number of omitted chars.
+   * `0` disables the cap. The summary can only reflect what the summarizer
+   * saw, so a small cap means large `read` outputs and long logs are
+   * summarized from their head only.
+   */
+  summarizerMaxCharsPerResult: number;
 }
 
 export const DEFAULT_CONFIG: ContextPruneConfig = {
@@ -203,6 +211,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   remindUnprunedCount: true,
   notifySkipped: true,
   batchingMode: "turn",
+  summarizerMaxCharsPerResult: 2000,
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────

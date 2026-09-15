@@ -143,6 +143,8 @@ The extension registers the `/pruner` command:
 | `/pruner model <id>:<thinking>` | Set summarizer model and thinking together (e.g. `openai/gpt-5-mini:low`) |
 | `/pruner thinking` | Show current summarizer thinking level |
 | `/pruner thinking <level>` | Set summarizer thinking (`default`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`) |
+| `/pruner max-chars` | Show how many chars of each tool result the summarizer sees |
+| `/pruner max-chars <n>` | Set that cap (`0` = send results in full) |
 | `/pruner prune-on` | Interactive picker over all trigger modes |
 | `/pruner prune-on <mode>` | Set trigger mode directly |
 | `/pruner batching` | Interactive picker over batching modes |
@@ -205,7 +207,8 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
   "summarizerThinking": "default",
   "pruneOn": "agent-message",
   "remindUnprunedCount": true,
-  "batchingMode": "turn"
+  "batchingMode": "turn",
+  "summarizerMaxCharsPerResult": 2000
 }
 ```
 
@@ -220,7 +223,9 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `remindUnprunedCount` | `true` / `false` | `true` |
 | `notifySkipped` | `true` / `false` | `true` |
 | `batchingMode` | `"turn"` / `"agent-message"` | `"turn"` |
+| `summarizerMaxCharsPerResult` | non-negative integer, `0` = no cap | `2000` |
 
+- `summarizerMaxCharsPerResult` caps how many characters of **each** tool result the summarizer is shown; anything beyond the cap is cut and replaced by `...[N chars truncated]`. The summary can only describe what the summarizer saw, so with the default a 40 KB `read` or a long test log is summarized from its first 2000 chars only (the rest stays retrievable via `context_tree_query`). Raise it if your summarizer model has a large context and you want more faithful summaries of big outputs at a higher summarizer cost; `0` sends every result in full.
 - `showPruneStatusLine: true` keeps the prune footer widget and the automatic queued-turn notice visible. Turn it off if you want pruning to stay active without that extra status noise.
 - `showStartupNotice: true` shows the passive `pruner loaded — pruning ON/OFF | model: ...` info notice when a session starts. Turn it off if you want startup to stay quiet; manual command output and real errors still appear.
 - `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
