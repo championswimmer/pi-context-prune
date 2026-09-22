@@ -90,8 +90,8 @@ const PRUNE_MODE_GUIDANCE: Record<ContextPruneConfig["pruneOn"], string> = {
   "every-turn": "Debugging only. Prunes after every tool turn, which is easiest to inspect but churns provider prompt caches the most.",
   "on-context-tag": "Good for milestone-based workflows. Flushes when context_checkpoint (legacy: context_tag) is called; requires the pi-context extension for automatic triggering.",
   "on-demand": "Maximum manual control. Nothing is pruned until you run /pruner now, so cache invalidation happens only when you choose.",
-  "agent-message": "Recommended default. Batches tool work and prunes once after the final text reply, giving the best balance of automation, context savings, and cache stability.",
-  "agentic-auto": "Useful for longer autonomous runs. Lets the model call context_prune, but depends on the model using it sparingly.",
+  "agent-message": "Good when you want an automatic, cache-stable flush after the final text reply instead of letting the model choose.",
+  "agentic-auto": "Recommended default. Lets the model call context_prune at logical task boundaries, but works best when it uses the tool sparingly.",
 };
 
 function pruneModeGuidance(mode: ContextPruneConfig["pruneOn"]): string {
@@ -146,9 +146,9 @@ function batchingModeLabel(mode: ContextPruneConfig["batchingMode"]): string {
 
 function batchingModeDescription(mode: ContextPruneConfig["batchingMode"]): string {
   if (mode === "turn") {
-    return "Per turn (default): one summary per assistant turn. Keeps summaries small and granular.";
+    return "Per turn: one summary per assistant turn. Debugging only — this is mainly for inspecting pruning behavior, not normal use.";
   }
-  return "Per agent message: merges all assistant turns between two user messages into one summary. Fewer, larger summaries per conversation exchange.";
+  return "Per agent message (default): merges all assistant turns between two user messages into one summary. Recommended for normal use.";
 }
 
 function remindUnprunedCountDescription(config: ContextPruneConfig): string {
@@ -191,11 +191,11 @@ Usage:
   /pruner prune-on every-turn              Summarize after every tool-calling turn (debugging only; worst for prompt cache churn)
   /pruner prune-on on-context-tag          Summarize when context_checkpoint (legacy: context_tag) is called (requires pi-context extension)
   /pruner prune-on on-demand               Only summarize when /pruner now runs
-  /pruner prune-on agent-message           Summarize after the agent's final text reply (default; safest for cache stability)
-  /pruner prune-on agentic-auto            LLM decides when to prune via context_prune tool
+  /pruner prune-on agent-message           Summarize after the agent's final text reply (good for cache stability)
+  /pruner prune-on agentic-auto            LLM decides when to prune via context_prune tool (default)
   /pruner batching                         Show or interactively pick the batching granularity
-  /pruner batching turn                    One summary per assistant turn (default)
-  /pruner batching agent-message           One summary per user→final-agent-message span (merges all turns in a span)
+  /pruner batching turn                    One summary per assistant turn (debugging only)
+  /pruner batching agent-message           One summary per user→final-agent-message span (default; merges all turns in a span)
   /pruner stats                            Show cumulative summarizer token/cost stats
   /pruner tree                             Browse pruned tool calls in a foldable tree (Ctrl-O opens selected summary)
   /pruner now                              Flush pending tool calls immediately (shows live widget progress above the editor)
@@ -209,16 +209,16 @@ Agentic-auto reminder:
   This setting has no effect in any other prune-on mode.
 
 Batching mode:
-  - turn (default): each assistant turn that used tools gets its own summary block. Small, granular.
-  - agent-message: all assistant turns between two consecutive user messages are merged into one summary.
+  - turn: each assistant turn that used tools gets its own summary block. Small and granular, but intended mainly for debugging / inspection.
+  - agent-message (default): all assistant turns between two consecutive user messages are merged into one summary.
     Use this when a single user request triggers many back-to-back tool rounds that belong together.
 
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
   - on-context-tag: good if you already use pi-context save-points. Prunes on explicit milestones via context_checkpoint (legacy: context_tag).
   - on-demand: maximum manual control. Best when you want to decide exactly when to trade cache stability for shorter context.
-  - agent-message: recommended default. Batches a whole tool-using run, then prunes once after the final text reply so future requests become cacheable again.
-  - agentic-auto: useful for longer autonomous runs, but depends on the model using context_prune sparingly.
+  - agent-message: good when you want automatic flushing only after the final text reply for stronger cache stability.
+  - agentic-auto: recommended default. Useful for longer autonomous runs, but depends on the model using context_prune sparingly.
 
 Why this matters:
   Frequent edits to earlier context can reduce prompt/prefix cache hits on providers that cache identical prefixes. Batched pruning is usually cheaper and faster than pruning every turn.
