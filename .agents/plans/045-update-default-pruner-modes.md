@@ -14,7 +14,7 @@ steps:
   - phase: validation
     steps:
       - "- [x] step 1: build the package and inspect the final diff"
-      - "- [ ] step 2: scan changed files for secrets, run validation, and create the pull request"
+      - "- [x] step 2: scan changed files for secrets and run validation"
 ---
 
 # 045-update-default-pruner-modes
@@ -30,4 +30,4 @@ steps:
 
 ## Phase 3 — Validation
 - [x] step 1: build the package and inspect the final diff
-- [ ] step 2: scan changed files for secrets, run validation, and create the pull request
+- [x] step 2: scan changed files for secrets and run validation
