@@ -110,17 +110,18 @@ What happens when you call context_prune:
  *                       (legacy pi-context name: context_tag)
  * - "on-demand"      : only when the user runs /pruner now
  * - "agent-message"  : batches up turns and flushes when the agent sends a final text response
- *                       (a turn with no tool calls), or when the agent loop ends (default)
+ *                       (a turn with no tool calls), or when the agent loop ends
  * - "agentic-auto"   : the LLM agent decides when to prune by calling the context_prune tool;
  *                       the tool is only active in this mode and guided by prompt instructions
+ *                       (default)
  */
 export type PruneOn = "every-turn" | "on-context-tag" | "on-demand" | "agent-message" | "agentic-auto";
 
 /**
  * Granularity of pruning batches.
- * - "turn"          : one summary per assistant turn (default; current behavior)
+ * - "turn"          : one summary per assistant turn
  * - "agent-message" : one summary per full user → final-agent-message span
- *                     (merges all turns between two consecutive user messages)
+ *                     (merges all turns between two consecutive user messages; default)
  */
 export type BatchingMode = "turn" | "agent-message";
 
@@ -186,9 +187,9 @@ export interface ContextPruneConfig {
   notifySkipped: boolean;
   /**
    * Granularity of each pruning batch.
-   * - "turn"          : one summary per assistant turn (default)
+   * - "turn"          : one summary per assistant turn
    * - "agent-message" : one summary per user → final-agent-message span
-   *                     (all turns between two user messages are merged)
+   *                     (all turns between two user messages are merged; default)
    */
   batchingMode: BatchingMode;
 }
@@ -199,10 +200,10 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   showStartupNotice: true,
   summarizerModel: "default",
   summarizerThinking: "default",
-  pruneOn: "agent-message",
+  pruneOn: "agentic-auto",
   remindUnprunedCount: true,
   notifySkipped: true,
-  batchingMode: "turn",
+  batchingMode: "agent-message",
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────

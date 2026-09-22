@@ -98,7 +98,7 @@ This extension rewrites the **future request context** by replacing old raw `too
 
 On providers with **prefix / prompt caching** (for example Anthropic-style prompt caching), cache hits require the earlier prompt prefix to stay identical. If you keep changing earlier context, the provider has to recompute from the point of change onward, which means **higher latency, higher input cost, and fewer cache hits**. In other words: pruning too often can save tokens in-context while still hurting overall performance by repeatedly busting the provider cache.
 
-That is why **`agent-message` is the default**: it batches a whole stretch of tool work, prunes **once** when the agent is done and sends a final text reply, and then leaves the new shorter context stable again. You usually pay one cache bust per meaningful work batch instead of one cache bust per tool turn.
+That is why **`agent-message` remains the safest batching default**: it batches a whole stretch of tool work, prunes **once** when the agent is done and sends a final text reply, and then leaves the new shorter context stable again. You usually pay one cache bust per meaningful work batch instead of one cache bust per tool turn.
 
 References:
 - Anthropic prompt caching docs: <https://docs.claude.com/en/docs/build-with-claude/prompt-caching>
@@ -112,8 +112,8 @@ References:
 | `every-turn` | Immediately after each tool-calling turn | Smallest raw context as fast as possible; easiest to reason about | **Busts prompt cache the most often** because earlier context is rewritten after almost every tool turn; adds summarizer latency every turn; can cost more overall despite saving context tokens | **Debugging only.** Useful to test the extension, inspect summaries, or study behavior — not recommended for normal day-to-day use |
 | `on-context-tag` | When `context_checkpoint` is called | Lets you align pruning with explicit milestones / save-points; fewer cache busts than `every-turn` if you tag sparingly | Only auto-triggers if you have the [`pi-context`](https://github.com/ttttmr/pi-context) extension installed, because that extension provides the `context_checkpoint` tool (legacy name `context_tag` is still recognized); if you tag too often, you still churn cache; if you forget to tag, pending batches keep growing | Good if you already use `pi-context` and think in checkpoints / milestones |
 | `on-demand` | Only when you run `/pruner now` | Maximum manual control; easiest mode for preserving cache because nothing changes until you decide; good for long investigations where you want to delay pruning | Easy to forget; pending batches can grow large; you must manage timing yourself | Good for advanced users who want explicit control over when the cache is intentionally invalidated |
-| `agent-message` | When the agent sends a final text-only response | Best balance of automation, context savings, and cache friendliness; batches many tool turns into one prune; after the prune, future requests become highly cacheable again until the next batch finishes | You do not reclaim space mid-batch; if a run goes extremely long before the final reply, context can grow more than in aggressive modes | **Recommended default.** Safest general-purpose mode for normal coding-agent workflows |
-| `agentic-auto` | The model decides by calling `context_prune` | Lets the agent compact context before it gets too large; can work well for long autonomous runs when the model is disciplined | Depends on model judgment; if the model calls `context_prune` too often, it can churn cache similarly to `every-turn`; behavior is less predictable than `agent-message` | Good for longer autonomous sessions after prompt-tuning and observation |
+| `agent-message` | When the agent sends a final text-only response | Best balance of automation, context savings, and cache friendliness; batches many tool turns into one prune; after the prune, future requests become highly cacheable again until the next batch finishes | You do not reclaim space mid-batch; if a run goes extremely long before the final reply, context can grow more than in aggressive modes | Safest general-purpose mode when you want deterministic pruning only after the final reply |
+| `agentic-auto` | The model decides by calling `context_prune` | Lets the agent compact context before it gets too large; can work well for long autonomous runs when the model is disciplined | Depends on model judgment; if the model calls `context_prune` too often, it can churn cache similarly to `every-turn`; behavior is less predictable than `agent-message` | **Default trigger.** Good for longer autonomous sessions after prompt-tuning and observation |
 
 ### How each mode works
 
@@ -123,7 +123,7 @@ References:
 
 **`on-demand`** — Tool-call turns are batched but never summarized automatically. You decide when to flush with `/pruner now`. This is the most manual mode and also the easiest to keep cache-friendly, because you can wait until a large chunk of work is complete before changing earlier context.
 
-**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). This mode is the default because it usually causes just one context rewrite per meaningful task batch.
+**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). Use this trigger when you want pruning to wait until the final text reply instead of letting the model choose a prune point.
 
 **`agentic-auto`** — The `context_prune` tool is activated and exposed to the LLM. The system prompt tells the model to use it only after a meaningful batch of related tool calls, not after every small step. Used well, this gives the agent flexibility; used badly, it can over-prune and reduce cache effectiveness.
 
@@ -203,9 +203,9 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
   "showStartupNotice": true,
   "summarizerModel": "default",
   "summarizerThinking": "default",
-  "pruneOn": "agent-message",
+  "pruneOn": "agentic-auto",
   "remindUnprunedCount": true,
-  "batchingMode": "turn"
+  "batchingMode": "agent-message"
 }
 ```
 
@@ -216,16 +216,16 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `showStartupNotice` | `true` / `false` | `true` |
 | `summarizerModel` | `"default"` or `"provider/model-id"` | `"default"` |
 | `summarizerThinking` | `"default"`, `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` | `"default"` |
-| `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"agent-message"` |
+| `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"agentic-auto"` |
 | `remindUnprunedCount` | `true` / `false` | `true` |
 | `notifySkipped` | `true` / `false` | `true` |
-| `batchingMode` | `"turn"` / `"agent-message"` | `"turn"` |
+| `batchingMode` | `"turn"` / `"agent-message"` | `"agent-message"` |
 
 - `showPruneStatusLine: true` keeps the prune footer widget and the automatic queued-turn notice visible. Turn it off if you want pruning to stay active without that extra status noise.
 - `showStartupNotice: true` shows the passive `pruner loaded — pruning ON/OFF | model: ...` info notice when a session starts. Turn it off if you want startup to stay quiet; manual command output and real errors still appear.
 - `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
 - `notifySkipped: false` silences the "skipped pruning" warning shown when a summary would be larger than the raw tool output it replaces (pruning is skipped in that case; only the notification is suppressed).
-- `batchingMode: "turn"` keeps one summary per assistant tool-using turn. Set it to `"agent-message"` to merge all assistant turns between two user messages into one summary.
+- `batchingMode: "turn"` keeps one summary per assistant tool-using turn. This is mainly useful for debugging or closely inspecting prune behavior. `batchingMode: "agent-message"` is the default and recommended setting because it merges all assistant turns between two user messages into one summary.
 
 - `summarizerModel: "default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
 - `summarizerThinking: "default"` preserves old behavior: no explicit thinking/reasoning option is added to summarizer calls.
