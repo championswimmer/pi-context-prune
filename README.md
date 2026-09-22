@@ -123,7 +123,7 @@ References:
 
 **`on-demand`** — Tool-call turns are batched but never summarized automatically. You decide when to flush with `/pruner now`. This is the most manual mode and also the easiest to keep cache-friendly, because you can wait until a large chunk of work is complete before changing earlier context.
 
-**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). This remains the recommended `batchingMode` value even though the default `pruneOn` trigger is now `agentic-auto`, because it usually causes just one context rewrite per meaningful task batch.
+**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). Use this trigger when you want pruning to wait until the final text reply instead of letting the model choose a prune point.
 
 **`agentic-auto`** — The `context_prune` tool is activated and exposed to the LLM. The system prompt tells the model to use it only after a meaningful batch of related tool calls, not after every small step. Used well, this gives the agent flexibility; used badly, it can over-prune and reduce cache effectiveness.
 
@@ -225,7 +225,7 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 - `showStartupNotice: true` shows the passive `pruner loaded — pruning ON/OFF | model: ...` info notice when a session starts. Turn it off if you want startup to stay quiet; manual command output and real errors still appear.
 - `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
 - `notifySkipped: false` silences the "skipped pruning" warning shown when a summary would be larger than the raw tool output it replaces (pruning is skipped in that case; only the notification is suppressed).
-- `batchingMode: "turn"` keeps one summary per assistant tool-using turn. This is mainly useful for debugging or closely inspecting prune behavior. `batchingMode: "agent-message"` is the default and merges all assistant turns between two user messages into one summary.
+- `batchingMode: "turn"` keeps one summary per assistant tool-using turn. This is mainly useful for debugging or closely inspecting prune behavior. `batchingMode: "agent-message"` is the default and recommended setting because it merges all assistant turns between two user messages into one summary.
 
 - `summarizerModel: "default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
 - `summarizerThinking: "default"` preserves old behavior: no explicit thinking/reasoning option is added to summarizer calls.
