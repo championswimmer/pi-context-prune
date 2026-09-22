@@ -354,7 +354,7 @@ export function registerCommands(
   pi: ExtensionAPI,
   currentConfig: { value: ContextPruneConfig },
   flushPending: (ctx: ExtensionCommandContext, options?: FlushOptions) => Promise<
-    | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
+    | { ok: true; reason: "flushed" | "skipped-small" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
     | { ok: false; reason: string; error?: string }
   >,
   capturePendingBatches: (ctx: ExtensionCommandContext) => CapturedBatch[],
@@ -775,6 +775,16 @@ export function registerCommands(
               ctx.ui.notify(
                 `pruner: skipped pruning ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — summary was ${result.summaryCharCount} chars vs ${result.rawCharCount} raw chars; frontier advanced past this range`,
                 "warning"
+              );
+            }
+            break;
+          }
+
+          if (result.reason === "skipped-small") {
+            if (currentConfig.value.notifySkipped) {
+              ctx.ui.notify(
+                `pruner: skipped ${result.toolCallCount} tool call${result.toolCallCount === 1 ? "" : "s"} — ${result.rawCharCount} raw chars is below minRawChars (${currentConfig.value.minRawChars}); frontier advanced past this range`,
+                "info"
               );
             }
             break;

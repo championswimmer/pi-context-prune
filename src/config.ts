@@ -42,6 +42,10 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
           : DEFAULT_CONFIG.remindUnprunedCount,
       notifySkipped:
         typeof merged.notifySkipped === "boolean" ? merged.notifySkipped : DEFAULT_CONFIG.notifySkipped,
+      minRawChars:
+        typeof merged.minRawChars === "number" && Number.isFinite(merged.minRawChars) && merged.minRawChars >= 0
+          ? Math.floor(merged.minRawChars)
+          : DEFAULT_CONFIG.minRawChars,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

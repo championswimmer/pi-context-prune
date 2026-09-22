@@ -4,14 +4,16 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
+const npmCli = process.env.npm_execpath;
+assert(npmCli, "npm_execpath is required to run the package check");
 const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
 
 // Guard the published tarball contract so releases cannot regress to raw TypeScript.
 const packOutput = execFileSync(
-  "npm",
-  ["pack", "--dry-run", "--json", "--ignore-scripts"],
+  process.execPath,
+  [npmCli, "pack", "--dry-run", "--json", "--ignore-scripts"],
   { cwd: packageRoot, encoding: "utf8" },
 );
 const packResults = JSON.parse(packOutput);

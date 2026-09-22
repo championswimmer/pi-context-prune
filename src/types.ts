@@ -184,6 +184,8 @@ export interface ContextPruneConfig {
    * generated summary would be larger than the raw tool output it replaces.
    */
   notifySkipped: boolean;
+  /** Skip summarizer calls for batches whose raw tool output is below this size. */
+  minRawChars: number;
   /**
    * Granularity of each pruning batch.
    * - "turn"          : one summary per assistant turn (default)
@@ -202,6 +204,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   pruneOn: "agent-message",
   remindUnprunedCount: true,
   notifySkipped: true,
+  minRawChars: 1500,
   batchingMode: "turn",
 };
 
@@ -303,7 +306,7 @@ export interface SummarizerStats {
 }
 
 /** Outcome of the most recent completed prune attempt. */
-export type PruneFrontierOutcome = "summarized" | "skipped-oversized";
+export type PruneFrontierOutcome = "summarized" | "skipped-small" | "skipped-oversized";
 
 /**
  * Snapshot of the last successfully completed prune attempt boundary.
@@ -329,7 +332,7 @@ export interface PruneFrontier {
   rawCharCount: number;
   /** Character count of the rendered summary text that was produced */
   summaryCharCount: number;
-  /** Whether the attempt actually pruned or was skipped for being oversized */
+  /** Whether the attempt actually pruned or was skipped before/after summarization */
   outcome: PruneFrontierOutcome;
 }
 
