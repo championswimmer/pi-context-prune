@@ -123,7 +123,7 @@ References:
 
 **`on-demand`** — Tool-call turns are batched but never summarized automatically. You decide when to flush with `/pruner now`. This is the most manual mode and also the easiest to keep cache-friendly, because you can wait until a large chunk of work is complete before changing earlier context.
 
-**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). This remains the recommended batching mode because it usually causes just one context rewrite per meaningful task batch.
+**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). This remains the recommended **batching** mode because it usually causes just one context rewrite per meaningful task batch.
 
 **`agentic-auto`** — The `context_prune` tool is activated and exposed to the LLM. The system prompt tells the model to use it only after a meaningful batch of related tool calls, not after every small step. Used well, this gives the agent flexibility; used badly, it can over-prune and reduce cache effectiveness.
 
