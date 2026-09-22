@@ -13,7 +13,7 @@
  * Usage:  pi -e .
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "./src/config.js";
 import { captureBatch, captureUnindexedBatchesFromSession, groupBatchesByMode } from "./src/batch-capture.js";
 import { summarizeBatch, summarizeBatches } from "./src/summarizer.js";
@@ -52,6 +52,18 @@ export default function (pi: ExtensionAPI) {
 
   // Shared prune frontier — tracks the last completed prune attempt boundary
   const frontier = new PruneFrontierTracker();
+
+  // Whether index/stats/frontier have been rebuilt from the current session branch.
+  // session_start normally does this, but another extension's session_start handler
+  // may trigger an agent turn before ours has run (load order), so the context hook
+  // hydrates on demand as a fallback — otherwise that turn would go out unpruned.
+  let hydrated = false;
+  const hydrateFromSession = (ctx: ExtensionContext) => {
+    indexer.reconstructFromSession(ctx);
+    statsAccum.reconstructFromSession(ctx);
+    frontier.reconstructFromSession(ctx);
+    hydrated = true;
+  };
 
   // Pending batches — accumulated until the prune trigger fires
   const pendingBatches: CapturedBatch[] = [];
@@ -395,14 +407,8 @@ export default function (pi: ExtensionAPI) {
     // Load config from ~/.pi/agent/context-prune/settings.json
     currentConfig.value = await loadConfig();
 
-    // Rebuild in-memory index from persisted session entries
-    indexer.reconstructFromSession(ctx);
-
-    // Rebuild stats accumulator from persisted session entries
-    statsAccum.reconstructFromSession(ctx);
-
-    // Rebuild prune frontier from persisted session entries
-    frontier.reconstructFromSession(ctx);
+    // Rebuild in-memory index, stats accumulator and prune frontier from persisted session entries
+    hydrateFromSession(ctx);
 
     // Clear any batches queued before the session reload
     pendingBatches.length = 0;
@@ -423,9 +429,7 @@ export default function (pi: ExtensionAPI) {
 
   // Rebuild index and stats after tree navigation too (branch may have different history)
   pi.on("session_tree", async (_event, ctx) => {
-    indexer.reconstructFromSession(ctx);
-    statsAccum.reconstructFromSession(ctx);
-    frontier.reconstructFromSession(ctx);
+    hydrateFromSession(ctx);
     // Pending batches belong to the old branch — discard them
     pendingBatches.length = 0;
   });
@@ -521,8 +525,11 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── context: prune summarized tool results from next LLM call ─────────────
-  pi.on("context", async (event, _ctx) => {
+  pi.on("context", async (event, ctx) => {
     if (!currentConfig.value.enabled) return undefined;
+
+    // A turn can start before our session_start handler has run (see hydrateFromSession).
+    if (!hydrated) hydrateFromSession(ctx);
 
     const indexEmpty = indexer.getIndex().size === 0;
     let messages = event.messages;
