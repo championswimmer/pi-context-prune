@@ -86,6 +86,8 @@ In a long session this can grow to **30k–100k+ tokens**. The model pays for ev
 
 `pi-context-prune` intercepts completed tool-call batches, summarizes them, and replaces the raw outputs with compact summaries in future context. The original data is archived in the session index.
 
+One detail that shapes summary fidelity: the summarizer is shown at most `summarizerMaxCharsPerResult` characters of each tool result (default 2000; `0` = no cap). A 40 KB `read` or a long test log is therefore summarized from its head only, and the summary cannot mention anything past the cap. The full output stays in the index and can always be recovered with `context_tree_query`; raise the cap if you want more faithful summaries of large outputs and your summarizer model has the context to spare.
+
 ### ASCII: The same session *after* pruning Turns 1–5
 
 ```

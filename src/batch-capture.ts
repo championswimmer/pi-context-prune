@@ -138,8 +138,19 @@ export function captureUnindexedBatchesFromSession(
   return batches;
 }
 
-/** Serializes a single CapturedBatch into readable text for the summarizer LLM. */
-export function serializeBatchForSummarizer(batch: CapturedBatch): string {
+/** Default per-result cap shown to the summarizer; matches the historical hard-coded value. */
+export const DEFAULT_SUMMARIZER_MAX_CHARS_PER_RESULT = 2000;
+
+/**
+ * Serializes a single CapturedBatch into readable text for the summarizer LLM.
+ * `maxCharsPerResult` caps each tool result (0 = no cap); the summarizer only
+ * ever sees this much of a result, so the cap bounds summary fidelity as well
+ * as summarizer cost.
+ */
+export function serializeBatchForSummarizer(
+  batch: CapturedBatch,
+  maxCharsPerResult: number = DEFAULT_SUMMARIZER_MAX_CHARS_PER_RESULT
+): string {
   const parts: string[] = [];
 
   if (batch.assistantText) {
@@ -151,10 +162,9 @@ export function serializeBatchForSummarizer(batch: CapturedBatch): string {
     const argsJson = JSON.stringify(tc.args, null, 2);
 
     let resultText = tc.resultText;
-    const MAX_CHARS = 2000;
-    if (resultText.length > MAX_CHARS) {
-      const remaining = resultText.length - MAX_CHARS;
-      resultText = resultText.slice(0, MAX_CHARS) + ` ...[${remaining} chars truncated]`;
+    if (maxCharsPerResult > 0 && resultText.length > maxCharsPerResult) {
+      const remaining = resultText.length - maxCharsPerResult;
+      resultText = resultText.slice(0, maxCharsPerResult) + ` ...[${remaining} chars truncated]`;
     }
 
     return `Tool: ${tc.toolName}(${argsJson})\nResult (${status}): ${resultText}`;
@@ -169,11 +179,14 @@ export function serializeBatchForSummarizer(batch: CapturedBatch): string {
  * Serializes multiple CapturedBatches into a single readable text block for the summarizer LLM.
  * Each batch is rendered as a separate "Turn" section with a header indicating the turn index.
  */
-export function serializeBatchesForSummarizer(batches: CapturedBatch[]): string {
+export function serializeBatchesForSummarizer(
+  batches: CapturedBatch[],
+  maxCharsPerResult: number = DEFAULT_SUMMARIZER_MAX_CHARS_PER_RESULT
+): string {
   return batches
     .map((batch, i) => {
       const header = `=== Turn ${batch.turnIndex}${i > 0 ? ` (batch ${i + 1})` : ""} ===`;
-      const body = serializeBatchForSummarizer(batch);
+      const body = serializeBatchForSummarizer(batch, maxCharsPerResult);
       return `${header}\n${body}`;
     })
     .join("\n\n");

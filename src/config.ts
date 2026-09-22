@@ -15,6 +15,10 @@ function isSummarizerThinking(value: unknown): value is SummarizerThinking {
   return typeof value === "string" && SUMMARIZER_THINKING_LEVELS.some((level) => level.value === value);
 }
 
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
 /** Reads ~/.pi/agent/context-prune/settings.json and returns the config (or defaults). */
 export async function loadConfig(): Promise<ContextPruneConfig> {
   try {
@@ -42,6 +46,9 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
           : DEFAULT_CONFIG.remindUnprunedCount,
       notifySkipped:
         typeof merged.notifySkipped === "boolean" ? merged.notifySkipped : DEFAULT_CONFIG.notifySkipped,
+      summarizerMaxCharsPerResult: isNonNegativeInteger(merged.summarizerMaxCharsPerResult)
+        ? merged.summarizerMaxCharsPerResult
+        : DEFAULT_CONFIG.summarizerMaxCharsPerResult,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

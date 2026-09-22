@@ -76,6 +76,7 @@ const SUBCOMMANDS = [
   { value: "status",  label: "status    — show status, model, thinking, prune trigger, and status line" },
   { value: "model",   label: "model     — show or set the summarizer model" },
   { value: "thinking", label: "thinking  — show or set the summarizer thinking level" },
+  { value: "max-chars", label: "max-chars — show or set how many chars of each tool result the summarizer sees (0 = all)" },
   { value: "prune-on", label: "prune-on  — show or set the trigger mode" },
   { value: "batching", label: "batching  — show or set the batching mode (turn / agent-message)" },
   { value: "stats",   label: "stats     — show cumulative summarizer token/cost stats" },
@@ -594,7 +595,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  startup:  ${cfg.showStartupNotice ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  max-chars: ${cfg.summarizerMaxCharsPerResult === 0 ? "no cap" : cfg.summarizerMaxCharsPerResult} per tool result\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  startup:  ${cfg.showStartupNotice ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }
@@ -681,6 +682,27 @@ export function registerCommands(
           }
           saveConfig(currentConfig.value);
           ctx.ui.notify(`Summarizer thinking set to: ${currentConfig.value.summarizerThinking}`);
+          break;
+        }
+
+        // ── /pruner max-chars [value] ──
+        case "max-chars": {
+          const capArg = subArgs[0];
+          const current = currentConfig.value.summarizerMaxCharsPerResult;
+          if (!capArg) {
+            ctx.ui.notify(
+              `Summarizer sees up to ${current === 0 ? "all" : current} chars of each tool result${current === 0 ? "" : " (0 = all)"}`,
+            );
+            return;
+          }
+          const parsedCap = Number(capArg);
+          if (!Number.isInteger(parsedCap) || parsedCap < 0) {
+            ctx.ui.notify(`Invalid max-chars value: ${capArg}. Use a non-negative integer (0 = no cap).`, "warning");
+            return;
+          }
+          currentConfig.value = { ...currentConfig.value, summarizerMaxCharsPerResult: parsedCap };
+          saveConfig(currentConfig.value);
+          ctx.ui.notify(`Summarizer max chars per result set to: ${parsedCap === 0 ? "no cap" : parsedCap}`);
           break;
         }
 
