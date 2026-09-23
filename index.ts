@@ -37,6 +37,7 @@ import {
 import { StatsAccumulator } from "./src/stats.js";
 import { registerContextPruneTool } from "./src/context-prune-tool.js";
 import { PruneFrontierTracker } from "./src/frontier.js";
+import { reportSummarizerUsage, type UsageSession } from "./src/usage-report.js";
 
 export default function (pi: ExtensionAPI) {
   // Shared mutable config reference — updated by /pruner commands
@@ -68,6 +69,12 @@ export default function (pi: ExtensionAPI) {
   // Pending batches — accumulated until the prune trigger fires
   const pendingBatches: CapturedBatch[] = [];
   let isFlushing = false;
+  let usageWarningSessionId: string | undefined;
+  const notifyUsageError = (ctx: ExtensionContext, sessionId: string, error: unknown) => {
+    if (usageWarningSessionId === sessionId) return;
+    usageWarningSessionId = sessionId;
+    safeNotify(ctx, `pruner: could not record summarizer usage: ${errorMessage(error)}`, "warning");
+  };
 
   type FlushResult =
     | { ok: true; reason: "flushed" | "skipped-oversized"; batchCount: number; toolCallCount: number; rawCharCount: number; summaryCharCount: number }
@@ -189,16 +196,33 @@ export default function (pi: ExtensionAPI) {
     isFlushing = true;
 
     const delivery = options.delivery ?? "runtime";
+    let usageSession: UsageSession;
+    let usageSessionId: string;
     let sessionManager: SessionAppender | undefined;
-    if (delivery === "session") {
-      try {
-        sessionManager = ctx.sessionManager as unknown as SessionAppender;
-      } catch (err) {
-        restoreBatches(batches);
-        isFlushing = false;
-        return { ok: false, reason: isStaleContextError(err) ? "stale-context" : "failed", error: errorMessage(err) };
-      }
+    try {
+      // Both runtime and print-mode calls must use the original session manager.
+      usageSession = ctx.sessionManager as UsageSession;
+      usageSessionId = usageSession.getSessionId();
+      if (delivery === "session") sessionManager = usageSession as unknown as SessionAppender;
+    } catch (err) {
+      restoreBatches(batches);
+      isFlushing = false;
+      return { ok: false, reason: isStaleContextError(err) ? "stale-context" : "failed", error: errorMessage(err) };
     }
+    let reportedCount = 0;
+    const onUsage = (batch: CapturedBatch, response: import("@earendil-works/pi-ai").AssistantMessage) => {
+      statsAccum.add(response.usage);
+      reportedCount++;
+      reportSummarizerUsage(usageSession, response, batch, (error) => notifyUsageError(ctx, usageSessionId, error));
+    };
+    const persistStats = () => {
+      try {
+        if (delivery === "session") sessionManager!.appendCustomEntry(CUSTOM_TYPE_STATS, statsAccum.getStats());
+        else statsAccum.persist(pi);
+      } catch (err) {
+        notifyUsageError(ctx, usageSessionId, err);
+      }
+    };
 
     const appendEntry = (customType: string, data?: unknown) => sessionManager!.appendCustomEntry(customType, data);
     const appendSummaryMessage = (content: string, details: unknown) =>
@@ -221,6 +245,7 @@ export default function (pi: ExtensionAPI) {
           options.onProgress(i, batches.length, batches[i], "start");
           const r = await summarizeBatch(batches[i], currentConfig.value, ctx, {
             signal: options.signal,
+            onUsage: (response) => onUsage(batches[i], response),
             onTextProgress: (receivedChars) => {
               reportBatchTextProgress(i, batches.length, batches[i], receivedChars);
             },
@@ -232,6 +257,7 @@ export default function (pi: ExtensionAPI) {
         // Parallel — one LLM call per batch, all in flight simultaneously.
         results = await summarizeBatches(batches, currentConfig.value, ctx, {
           onBatchTextProgress: reportBatchTextProgress,
+          onUsage,
           signal: options.signal,
         });
       }
@@ -259,7 +285,6 @@ export default function (pi: ExtensionAPI) {
         const summaryText = wrapSummaryForContext(result.summaryText + formatSummaryToolCallRefs(summaryRefs));
         const shouldSkipOversized = summaryText.length > batchRawCharCount;
 
-        statsAccum.add(result.usage);
         totalRawCharCount += batchRawCharCount;
         totalSummaryCharCount += summaryText.length;
         totalToolCallCount += batch.toolCalls.length;
@@ -330,15 +355,9 @@ export default function (pi: ExtensionAPI) {
         if (delivery === "runtime") {
           frontier.advance(frontierSnapshot);
           frontier.persist(pi);
-          statsAccum.persist(pi);
         } else {
           frontier.advance(frontierSnapshot);
           appendEntry(CUSTOM_TYPE_FRONTIER, frontierSnapshot);
-          try {
-            appendEntry(CUSTOM_TYPE_STATS, statsAccum.getStats());
-          } catch {
-            // Ignore stats persistence failures; the prune result and frontier are the contract.
-          }
         }
       } catch (err) {
         return { ok: false, reason: isStaleContextError(err) ? "stale-context" : "failed", error: errorMessage(err) };
@@ -381,6 +400,7 @@ export default function (pi: ExtensionAPI) {
       safeNotify(ctx, `pruner: summarization failed: ${errorMessage(err)}`, "error");
       return { ok: false, reason: "failed", error: errorMessage(err) };
     } finally {
+      if (reportedCount > 0) persistStats();
       isFlushing = false;
     }
   };

@@ -385,6 +385,8 @@ export interface FlushOptions {
 
 /** Options for a single summarizeBatch() call. */
 export interface SummarizeBatchOptions {
+  /** Reports a final provider response once, even when its summary cannot be used. */
+  onUsage?: (response: import("@earendil-works/pi-ai").AssistantMessage) => void;
   /** Receives the number of summary text characters streamed so far. */
   onTextProgress?: (receivedChars: number) => void;
   /**
@@ -396,6 +398,8 @@ export interface SummarizeBatchOptions {
 
 /** Options for summarizeBatches() when callers want live per-batch text progress. */
 export interface SummarizeBatchesOptions {
+  /** Reports each completed provider call independently of batch persistence. */
+  onUsage?: (batch: CapturedBatch, response: import("@earendil-works/pi-ai").AssistantMessage) => void;
   /** Receives streamed summary text character counts for each batch. */
   onBatchTextProgress?: BatchTextProgressCallback;
   /**

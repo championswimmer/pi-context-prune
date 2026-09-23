@@ -1,4 +1,4 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { normalizeContext, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type {
   CapturedBatch,
@@ -109,7 +109,7 @@ export async function summarizeBatch(
     // top-level stream() helper of its own.
     const responseStream = provider.stream(
       auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model,
-      {
+      normalizeContext({
         messages: [
           {
             role: "user",
@@ -117,7 +117,7 @@ export async function summarizeBatch(
             timestamp: Date.now(),
           },
         ],
-      },
+      }),
       {
         apiKey: auth.apiKey,
         headers: auth.headers,
@@ -145,11 +145,17 @@ export async function summarizeBatch(
       }
     }
 
-    // If signal fired while we were iterating, propagate the abort so
-    // flushPending can detect it and restore batches.
-    if (options.signal?.aborted) throw new Error("summarizeBatch: aborted during stream");
-
+    // Ask for the final response even after an abort: providers may return
+    // partial usage, which must be billed even though the summary is discarded.
     const response = await responseStream.result();
+    if (response.usage) {
+      try {
+        options.onUsage?.(response);
+      } catch {
+        // Accounting must never change whether a summary succeeds.
+      }
+    }
+    if (options.signal?.aborted) throw new Error("summarizeBatch: aborted during stream");
     reportTextProgress(response);
     // stopReason "aborted" means the provider cut the stream short (e.g. signal
     // fired just before the final chunk). Treat identically to the signal check
@@ -207,6 +213,7 @@ export async function summarizeBatches(
     return [
       await summarizeBatch(batches[0], config, ctx, {
         signal: options.signal,
+        onUsage: (response) => options.onUsage?.(batches[0], response),
         onTextProgress: (receivedChars) => {
           options.onBatchTextProgress?.(0, 1, batches[0], receivedChars);
         },
@@ -214,15 +221,20 @@ export async function summarizeBatches(
     ];
   }
 
-  // Multiple batches — run in parallel; each produces its own SummarizeResult
-  return Promise.all(
+  // Wait for every in-flight call even on abort, so final usage callbacks and
+  // stats persistence cannot race with flushPending's finally block.
+  const settled = await Promise.allSettled(
     batches.map((batch, index) =>
       summarizeBatch(batch, config, ctx, {
         signal: options.signal,
+        onUsage: (response) => options.onUsage?.(batch, response),
         onTextProgress: (receivedChars) => {
           options.onBatchTextProgress?.(index, batches.length, batch, receivedChars);
         },
       })
     )
   );
+  const failure = settled.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
+  return settled.map((result) => result.status === "fulfilled" ? result.value : null);
 }

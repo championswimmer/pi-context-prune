@@ -1,11 +1,11 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ContextPruneConfig, PruneOn, SummarizerThinking } from "./types.js";
 import { DEFAULT_CONFIG, PRUNE_ON_MODES, SUMMARIZER_THINKING_LEVELS } from "./types.js";
 
 /** Path to the extension's own settings file, independent of any project. */
-export const SETTINGS_PATH = join(homedir(), ".pi", "agent", "context-prune", "settings.json");
+export const SETTINGS_PATH = join(getAgentDir(), "context-prune", "settings.json");
 
 function isPruneOn(value: unknown): value is PruneOn {
   return typeof value === "string" && PRUNE_ON_MODES.some((mode) => mode.value === value);

@@ -33,6 +33,8 @@ The extension does append its own custom summary/index/frontier/stats entries to
 
 ## Installation
 
+Requires Pi `@earendil-works/pi-coding-agent` **0.86.0 or later** for session usage entries.
+
 ### Install from npm (stable releases)
 
 The package is published on [npmjs.org](https://www.npmjs.com/package/pi-context-prune). Use this for stable, versioned releases:
@@ -277,7 +279,7 @@ src/
   types.ts                  — shared types, constants, PruneOn modes
   config.ts                 — load/save ~/.pi/agent/context-prune/settings.json
   batch-capture.ts          — capture turn_end/session-branch tool results → CapturedBatch
-  summarizer.ts             — resolve model, stream LLM summaries, return usage
+  summarizer.ts             — resolve model, stream LLM summaries, report final usage
   indexer.ts                — Map<toolCallId, ToolCallRecord> + session persistence
   pruner.ts                 — filter context event messages
   reminder.ts               — append <pruner-note> count hints in agentic-auto mode
@@ -287,6 +289,8 @@ src/
   context-prune-tool.ts     — context_prune tool registration (agentic-auto)
   frontier.ts               — persisted prune-frontier tracker for last attempted prune boundary
   stats.ts                  — StatsAccumulator for cumulative token/cost tracking
+  usage-report.ts           — record provider usage in Pi and link to sidecar
+  usage-log.ts              — normalized pi-stats v1 usage sidecar writer
   tree-browser.ts           — foldable tree browser for /pruner tree
   commands.ts               — /pruner command, settings overlay, widgets, and message renderer
 ```
@@ -334,6 +338,7 @@ flushPending()
   └─► compare summary chars vs raw tool-result chars
   └─► if smaller: persist index + hidden summary, then advance frontier
   └─► if larger: keep original tool results, skip summary/index writes, still advance frontier
+  └─► onUsage()                record each final provider response, even if its summary is discarded
   └─► statsAccum.add()/persist() accumulate token/cost stats for the summarizer call
 
 context
@@ -346,7 +351,8 @@ before_agent_start (agentic-auto mode)
 
 ### Session persistence
 
-- **Config** lives in `~/.pi/agent/context-prune/settings.json` — the extension's own file, independent of Pi's project settings
+- **Config** lives in `<agentDir>/context-prune/settings.json` (normally `~/.pi/agent/`, honoring `PI_CODING_AGENT_DIR`) — independent of Pi's project settings
+- **Summarizer usage** is recorded once per final provider response with usage, including failed or oversized summaries. Pi `type: "usage"` entries drive its footer and `/session`; `<agentDir>/context-prune/usage.jsonl` (and rotated `.1`) is a content-free pi-stats v1 sidecar. Both use the shared id `<sessionId>:<usageEntryId>` and the same timestamp, allowing future readers of both channels to de-duplicate. On older Pi without `appendUsage`, the sidecar uses a UUID instead. pi-stats can ignore sidecars with `PI_STATS_DISABLE_USAGE_SIDECARS=1`. Until [pi-stats supports shared-id deduplication](https://github.com/hank-warren/pi-extensions/issues/42), a version that counts both usage entries and sidecars may double count them.
 - **Index** is persisted via `pi.appendEntry("context-prune-index", { toolCalls })` — one entry per summarized batch, NOT in LLM context
 - **Prune frontier** is persisted via `pi.appendEntry("context-prune-frontier", ...)` — it records the last attempted prune boundary even when an oversized summary is rejected
 - **Summaries** are injected as hidden `custom_message` entries with `customType: "context-prune-summary"` — these ARE in LLM context (replacing the raw outputs only when pruning is accepted) but are not rendered into Pi's main message window. Their text uses short refs, while the `details.toolCallRefs` metadata keeps the full `toolCallId` mapping for later recovery.
