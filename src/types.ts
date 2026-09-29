@@ -394,6 +394,11 @@ export interface SummarizeBatchOptions {
    * batch is treated as aborted (not a summarizer failure).
    */
   signal?: AbortSignal;
+  /**
+   * Session id forwarded to the provider so OpenCode providers attach their
+   * required per-conversation routing header (x-opencode-session).
+   */
+  sessionId?: string;
 }
 
 /** Options for summarizeBatches() when callers want live per-batch text progress. */
@@ -407,6 +412,8 @@ export interface SummarizeBatchesOptions {
    * When fired, all in-flight stream calls are cancelled.
    */
   signal?: AbortSignal;
+  /** Session id forwarded to every individual summarizeBatch() call. */
+  sessionId?: string;
 }
 
 /**

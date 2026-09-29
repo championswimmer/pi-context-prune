@@ -245,6 +245,7 @@ export default function (pi: ExtensionAPI) {
           options.onProgress(i, batches.length, batches[i], "start");
           const r = await summarizeBatch(batches[i], currentConfig.value, ctx, {
             signal: options.signal,
+            sessionId: usageSessionId,
             onUsage: (response) => onUsage(batches[i], response),
             onTextProgress: (receivedChars) => {
               reportBatchTextProgress(i, batches.length, batches[i], receivedChars);
@@ -259,6 +260,7 @@ export default function (pi: ExtensionAPI) {
           onBatchTextProgress: reportBatchTextProgress,
           onUsage,
           signal: options.signal,
+          sessionId: usageSessionId,
         });
       }
 
