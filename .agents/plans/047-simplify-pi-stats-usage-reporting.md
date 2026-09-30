@@ -17,8 +17,8 @@ steps:
       - "- [x] step 2: review the final diff for consistency and ensure the working tree is clean except for intended changes"
   - phase: release
     steps:
-      - "- [ ] step 1: commit the simplification with a clear message and push main"
-      - "- [ ] step 2: run the repository release flow for a minor version bump and push the new tag"
+      - "- [x] step 1: commit the simplification with a clear message and push main"
+      - "- [x] step 2: run the repository release flow for a minor version bump and push the new tag"
 ---
 
 # 047-simplify-pi-stats-usage-reporting
@@ -37,5 +37,5 @@ steps:
 - [x] step 2: review the final diff for consistency and ensure the working tree is clean except for intended changes
 
 ## Phase 4 — Release
-- [ ] step 1: commit the simplification with a clear message and push main
-- [ ] step 2: run the repository release flow for a minor version bump and push the new tag
+- [x] step 1: commit the simplification with a clear message and push main
+- [x] step 2: run the repository release flow for a minor version bump and push the new tag
