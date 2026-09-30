@@ -39,8 +39,7 @@ pi-context-prune/
     ├── context-prune-tool.ts      # Register the context_prune tool for agentic-auto mode
     ├── tree-browser.ts            # TreeBrowser TUI component + buildPruneTree for /pruner tree
     ├── stats.ts                   # StatsAccumulator for cumulative summarizer token/cost tracking
-    ├── usage-report.ts            # Pi usage entry + linked pi-stats sidecar report
-    ├── usage-log.ts               # pi-stats v1 usage JSONL writer with rotation
+    ├── usage-report.ts            # Pi usage entry reporting for summarizer calls
     ├── multi-batch-loader.ts      # MultiBatchLoaderOverlay TUI component for /pruner now progress display
     └── commands.ts                # /pruner command + interactive settings overlay + summary message renderer
 ```
@@ -173,9 +172,9 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 - **`formatCost(n)`** — formats cost like `$0.003` or `<$0.001`.
 - **`statsSuffix(stats)`** — builds the status widget suffix string (e.g. ` │ ↑1.2k ↓340 $0.003`) or `""` if no calls yet.
 
-### `src/usage-report.ts` + `src/usage-log.ts` — External summarizer usage
+### `src/usage-report.ts` — External summarizer usage
 - Each provider final response with usage is recorded via captured `SessionManager.appendUsage("context_prune", …)` independently of whether its summary is used. The same hook updates `StatsAccumulator`.
-- A content-free pi-stats v1 line is appended to `<getAgentDir()>/context-prune/usage.jsonl` (rotates at 16 MB to `.1`), with a shared id `<sessionId>:<usageEntryId>` and the session entry timestamp. If appendUsage is missing, the sidecar id is a random UUID. Errors warn once per session and do not fail pruning.
+- pi-stats (>= 0.5.0) reads those Pi `type: "usage"` entries directly, so the extension no longer mirrors them into a separate sidecar file.
 - Requires `@earendil-works/pi-coding-agent >=0.86.0` for `appendUsage` and `UsageEntry`. Settings also resolve via `getAgentDir()` to honor `PI_CODING_AGENT_DIR`.
 
 ### `src/commands.ts` — `/pruner` command + settings overlay + renderer

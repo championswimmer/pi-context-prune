@@ -1,16 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, statSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 
 const temp = mkdtempSync(join(process.cwd(), 'node_modules', '.pruner-usage-'));
-await build({ entryPoints: ['src/usage-report.ts', 'src/usage-log.ts', 'src/summarizer.ts'],
-  outdir: temp, bundle: true, platform: 'node', format: 'esm', packages: 'external', outExtension: { '.js': '.mjs' } });
+const piAiShim = join(temp, 'pi-ai-shim.mjs');
+writeFileSync(piAiShim, "export const normalizeContext = value => value;\n");
+await build({
+  entryPoints: ['src/usage-report.ts', 'src/summarizer.ts'],
+  outdir: temp,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  alias: { '@earendil-works/pi-ai': piAiShim },
+  external: ['@earendil-works/pi-coding-agent'],
+  outExtension: { '.js': '.mjs' },
+});
 const report = await import(pathToFileURL(join(temp, 'usage-report.mjs')));
-const log = await import(pathToFileURL(join(temp, 'usage-log.mjs')));
 const { summarizeBatch, summarizeBatches } = await import(pathToFileURL(join(temp, 'summarizer.mjs')));
 const usage = { input: 12, output: 4, cacheRead: 2, cacheWrite: 0, totalTokens: 18,
   cost: { input: .1, output: .2, cacheRead: .03, cacheWrite: 0, total: .33 } };
@@ -28,24 +37,26 @@ function context(responses) {
   return { ctx, errors };
 }
 
-test('one usage report for a paid oversized summary, shared id and sidecar shape', async () => {
+test('one usage report for a paid oversized summary via appendUsage', async () => {
   const { ctx } = context([response()]);
   const entries = [];
-  const dir = join(temp, 'sidecar');
   const session = { getSessionId: () => 'session-1', appendUsage: (...args) => {
     entries.push(args); return { id: 'entry-1', timestamp: '2026-01-01T00:00:00Z' }; } };
-  const result = await summarizeBatch(batch(), config, ctx, { onUsage: msg => report.reportSummarizerUsage(session, msg, batch(), () => {}, rec => log.appendUsageLog(rec, dir)) });
+  const errors = [];
+  const result = await summarizeBatch(batch(), config, ctx, { onUsage: msg => report.reportSummarizerUsage(session, msg, batch(), e => errors.push(e)) });
   assert.ok(result.summaryText.length > batch().toolCalls[0].resultText.length);
   assert.equal(entries.length, 1);
   assert.deepEqual(entries[0], ['context_prune', 'anthropic', 'actual-model', usage, 'summarizer call: 1 tool calls (turn 3)']);
-  const record = JSON.parse(readFileSync(join(dir, 'usage.jsonl'), 'utf8'));
-  assert.equal(record.id, 'session-1:entry-1');
-  assert.equal(record.ts, '2026-01-01T00:00:00Z');
-  assert.equal(record.usage.cost, .33);
-  assert.equal(record.usageEntryId, 'entry-1');
-  assert.equal(record.kind, 'context_prune');
-  assert.equal(statSync(join(dir, 'usage.jsonl')).mode & 0o777, 0o600);
-  assert.equal(statSync(dir).mode & 0o777, 0o700);
+  assert.equal(errors.length, 0);
+});
+
+test('response without usage is not reported', () => {
+  const errors = [];
+  const entries = [];
+  const session = { getSessionId: () => 's', appendUsage: (...args) => { entries.push(args); } };
+  report.reportSummarizerUsage(session, { ...response(), usage: undefined }, batch(), e => errors.push(e));
+  assert.equal(entries.length, 0);
+  assert.equal(errors.length, 0);
 });
 
 test('error and subsequent parallel responses report even if first summary fails', async () => {
@@ -71,33 +82,27 @@ test('aborted final response still reports usage, even if signal fires during st
   assert.equal(reports.length, 1);
 });
 
-test('real Pi in-memory session stores a context-free usage entry', () => {
+test('real Pi in-memory session stores a context-free usage entry', (t) => {
   const session = SessionManager.inMemory();
-  const records = [];
-  report.reportSummarizerUsage(session, response(), batch(), () => {}, r => records.push(r));
+  if (typeof session.appendUsage !== 'function') {
+    t.skip('installed pi-coding-agent predates SessionManager.appendUsage');
+    return;
+  }
+  const errors = [];
+  report.reportSummarizerUsage(session, response(), batch(), e => errors.push(e));
   const entry = session.getBranch()[0];
   assert.equal(entry.type, 'usage');
   assert.equal(entry.kind, 'context_prune');
   assert.equal(entry.usage.cost.total, .33);
-  assert.equal(records[0].id, `${session.getSessionId()}:${entry.id}`);
+  assert.equal(errors.length, 0);
 });
 
-test('fallback, rotation, normalization and I/O failures', () => {
-  const records = [];
-  const session = { getSessionId: () => 's' };
-  report.reportSummarizerUsage(session, response(), batch(), () => {}, r => records.push(r));
-  assert.match(records[0].id, /^[0-9a-f-]{36}$/);
-  assert.equal(records[0].usageEntryId, undefined);
-  assert.equal(log.normalizeUsage({ ...usage, input: -1, output: Infinity, cost: { total: NaN } }).input, 0);
-  const dir = join(temp, 'rotate');
-  log.appendUsageLog(records[0], dir);
-  writeFileSync(join(dir, 'usage.jsonl'), 'z'.repeat(log.MAX_USAGE_LOG_BYTES));
-  log.appendUsageLog(records[0], dir);
-  assert.equal(statSync(join(dir, 'usage.jsonl.1')).size, log.MAX_USAGE_LOG_BYTES);
-  assert.equal(readFileSync(join(dir, 'usage.jsonl'), 'utf8').trim().split('\n').length, 1);
+test('missing appendUsage is a silent no-op; throwing appendUsage notifies once', () => {
   const errors = [];
-  report.reportSummarizerUsage({ ...session, appendUsage: () => { throw Error('no session'); } }, response(), batch(), e => errors.push(e), () => { throw Error('no disk'); });
-  assert.equal(errors.length, 2);
+  report.reportSummarizerUsage({ getSessionId: () => 's' }, response(), batch(), e => errors.push(e));
+  assert.equal(errors.length, 0);
+  report.reportSummarizerUsage({ getSessionId: () => 's', appendUsage: () => { throw Error('no session'); } }, response(), batch(), e => errors.push(e));
+  assert.equal(errors.length, 1);
 });
 
 process.on('exit', () => rmSync(temp, { recursive: true, force: true }));
