@@ -1,6 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { dirname } from "node:path";
 import type { ContextPruneConfig, PruneOn, SummarizerThinking, BatchingMode } from "./types.js";
 import {
   DEFAULT_CONFIG,
@@ -10,9 +9,7 @@ import {
   FLUSH_CONCURRENCY_MIN,
   FLUSH_CONCURRENCY_MAX,
 } from "./types.js";
-
-/** Path to the extension's own settings file, independent of any project. */
-export const SETTINGS_PATH = join(homedir(), ".pi", "agent", "context-prune", "settings.json");
+import { getSettingsPath } from "./paths.js";
 
 function isPruneOn(value: unknown): value is PruneOn {
   return typeof value === "string" && PRUNE_ON_MODES.some((mode) => mode.value === value);
@@ -81,10 +78,10 @@ export function normalizeConfig(existing: Record<string, unknown> | object): Con
   };
 }
 
-/** Reads ~/.pi/agent/context-prune/settings.json and returns the config (or defaults). */
+/** Reads <agentDir>/context-prune/settings.json and returns the config (or defaults). */
 export async function loadConfig(): Promise<ContextPruneConfig> {
   try {
-    const raw = await readFile(SETTINGS_PATH, "utf-8");
+    const raw = await readFile(getSettingsPath(), "utf-8");
     const existing = JSON.parse(raw);
     if (existing == null || typeof existing !== "object" || Array.isArray(existing)) {
       return { ...DEFAULT_CONFIG };
@@ -95,8 +92,9 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
   }
 }
 
-/** Writes the full config to ~/.pi/agent/context-prune/settings.json. */
+/** Writes the full config to <agentDir>/context-prune/settings.json. */
 export async function saveConfig(config: ContextPruneConfig): Promise<void> {
-  await mkdir(dirname(SETTINGS_PATH), { recursive: true });
-  await writeFile(SETTINGS_PATH, JSON.stringify(config, null, 2));
+  const path = getSettingsPath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(config, null, 2));
 }

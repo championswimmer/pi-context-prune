@@ -2,7 +2,7 @@
  * context-prune — Pi extension entry point
  *
  * Wires together all modules:
- *   config       — load/save ~/.pi/agent/context-prune/settings.json
+ *   config       — load/save <agentDir>/context-prune/settings.json
  *   batch-capture — serialize turn_end event into CapturedBatch
  *   summarizer   — call LLM to summarize a CapturedBatch
  *   indexer      — maintain Map<toolCallId, ToolCallRecord> + session persistence
@@ -30,7 +30,6 @@ import {
   DEFAULT_CONFIG,
   CONTEXT_PRUNE_TOOL_NAME,
   CONTEXT_TAG_TOOL_NAMES,
-  AGENTIC_AUTO_SYSTEM_PROMPT,
   CUSTOM_TYPE_SUMMARY,
   CUSTOM_TYPE_INDEX,
   CUSTOM_TYPE_STATS,
@@ -42,6 +41,7 @@ import { PruneFrontierTracker } from "./src/frontier.js";
 import { handleAgentEndLifecycle } from "./src/agent-message-lifecycle.js";
 import { batchRawCharCount } from "./src/pre-skip.js";
 import { runFlushSummarizePhase } from "./src/flush-summarize-phase.js";
+import { appendAgenticAutoPrompt } from "./src/system-prompt.js";
 
 export default function (pi: ExtensionAPI) {
   // Shared mutable config reference — updated by /pruner commands
@@ -628,6 +628,9 @@ export default function (pi: ExtensionAPI) {
       pruneOn: currentConfig.value.pruneOn,
       messages: event.messages,
       pendingCount: pendingBatches.length,
+      // omp schedules automatic continuations (auto-retry, empty-stop retry).
+      // Flushing then would drop the very context the next attempt needs.
+      willContinue: (event as { willContinue?: boolean }).willContinue,
       signal: ctx.signal,
       flush: (options) => flushPending(ctx, options),
       setPendingStatus: (count) => {
@@ -687,11 +690,10 @@ export default function (pi: ExtensionAPI) {
   // ── before_agent_start: inject system prompt for agentic-auto mode ───────────
   pi.on("before_agent_start", async (event, _ctx) => {
     if (!currentConfig.value.enabled || currentConfig.value.pruneOn !== "agentic-auto") return undefined;
-    // Append agentic-auto instructions to the system prompt
-    const appended = AGENTIC_AUTO_SYSTEM_PROMPT;
-    const original = event.systemPrompt ?? "";
-    const newPrompt = original + "\n\n" + appended;
-    return { systemPrompt: newPrompt };
+    // omp passes `systemPrompt: string[]` and must get an array back; pi passes
+    // a string. `appendAgenticAutoPrompt` preserves the host shape. The cast is
+    // for pi's declaration, which only types `systemPrompt?: string`.
+    return appendAgenticAutoPrompt(event.systemPrompt) as unknown as { systemPrompt: string };
   });
 
   // ── Register context_tree_query tool ──────────────────────────────────────

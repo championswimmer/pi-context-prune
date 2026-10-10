@@ -52,6 +52,26 @@ describe("handleAgentEndLifecycle", () => {
     }
   });
 
+  test("omp continuation keeps pending even for a successful final reply", async () => {
+    const calls: unknown[] = [];
+    const statuses: number[] = [];
+    const result = await handleAgentEndLifecycle({
+      enabled: true,
+      pruneOn: "agent-message",
+      messages: [assistant("stop", "done")],
+      pendingCount: 4,
+      willContinue: true,
+      flush: async (options) => {
+        calls.push(options);
+      },
+      setPendingStatus: (count) => statuses.push(count),
+    });
+
+    expect(result).toBe("kept-pending");
+    expect(calls).toEqual([]);
+    expect(statuses).toEqual([4]);
+  });
+
   test("later successful request after an unsuccessful run flushes retained pending", async () => {
     const calls: unknown[] = [];
     let pendingCount = 2;
