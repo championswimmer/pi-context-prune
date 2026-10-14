@@ -105,4 +105,22 @@ test('missing appendUsage is a silent no-op; throwing appendUsage notifies once'
   assert.equal(errors.length, 1);
 });
 
+test('session id is forwarded to provider stream options', async () => {
+  const captured = [];
+  const ctx = { model: { provider: 'opencode-go' }, ui: { notify: () => {} },
+    modelRegistry: {
+      getApiKeyAndHeaders: async () => ({ ok: true, apiKey: 'dummy' }),
+      getProvider: () => ({
+        stream: (_model, _context, options) => {
+          captured.push(options?.sessionId);
+          const result = response();
+          return { async *[Symbol.asyncIterator]() {}, result: async () => result };
+        },
+      }),
+    } };
+  await summarizeBatch(batch(), config, ctx, { sessionId: 'sess-abc' });
+  await summarizeBatches([batch('a'), batch('b')], config, ctx, { sessionId: 'sess-abc' });
+  assert.deepEqual(captured, ['sess-abc', 'sess-abc', 'sess-abc']);
+});
+
 process.on('exit', () => rmSync(temp, { recursive: true, force: true }));

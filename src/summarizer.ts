@@ -123,6 +123,7 @@ export async function summarizeBatch(
         headers: auth.headers,
         env: auth.env,
         signal: options.signal,
+        ...(options.sessionId ? { sessionId: options.sessionId } : {}),
         ...summarizerThinkingOptions(config),
       }
     );
@@ -213,6 +214,7 @@ export async function summarizeBatches(
     return [
       await summarizeBatch(batches[0], config, ctx, {
         signal: options.signal,
+        sessionId: options.sessionId,
         onUsage: (response) => options.onUsage?.(batches[0], response),
         onTextProgress: (receivedChars) => {
           options.onBatchTextProgress?.(0, 1, batches[0], receivedChars);
@@ -227,6 +229,7 @@ export async function summarizeBatches(
     batches.map((batch, index) =>
       summarizeBatch(batch, config, ctx, {
         signal: options.signal,
+        sessionId: options.sessionId,
         onUsage: (response) => options.onUsage?.(batch, response),
         onTextProgress: (receivedChars) => {
           options.onBatchTextProgress?.(index, batches.length, batch, receivedChars);
