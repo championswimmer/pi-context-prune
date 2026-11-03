@@ -160,6 +160,10 @@ export interface ContextPruneConfig {
   enabled: boolean;
   /** Whether to show the prune footer status line and queued turn notifications */
   showPruneStatusLine: boolean;
+  /** Include summarizer tokens/cost in the visible footer; separate to preserve old visibility settings. */
+  showPruneStatusCost: boolean;
+  /** Experimental: use Nerd Font glyphs instead of standard Unicode status icons. */
+  useNerdFontIcons: boolean;
   /** Whether to show the passive "pruner loaded" notice when a session starts */
   showStartupNotice: boolean;
   /**
@@ -197,6 +201,8 @@ export interface ContextPruneConfig {
 export const DEFAULT_CONFIG: ContextPruneConfig = {
   enabled: false,
   showPruneStatusLine: true,
+  showPruneStatusCost: true,
+  useNerdFontIcons: false,
   showStartupNotice: true,
   summarizerModel: "default",
   summarizerThinking: "default",

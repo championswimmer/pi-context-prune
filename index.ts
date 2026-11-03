@@ -21,7 +21,7 @@ import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
 import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminder.js";
 import { registerQueryTool } from "./src/query-tool.js";
-import { registerCommands, setPruneStatusWidget } from "./src/commands.js";
+import { registerCommands, setPruneStatusWidget, pruneStatusText, pendingTurnsText } from "./src/commands.js";
 import { formatSummaryToolCallRefs, makeSummaryDetails, wrapSummaryForContext } from "./src/summary-refs.js";
 import type { ContextPruneConfig, CapturedBatch, IndexEntryData, PruneFrontier, FlushOptions } from "./src/types.js";
 import {
@@ -229,7 +229,7 @@ export default function (pi: ExtensionAPI) {
       sessionManager!.appendCustomMessageEntry(CUSTOM_TYPE_SUMMARY, content, false, details);
 
     try {
-      setPruneStatusWidget(ctx, currentConfig.value, "prune: summarizing…");
+      setPruneStatusWidget(ctx, currentConfig.value, "summarizing…", statsAccum.getStats());
 
       const reportBatchTextProgress = (index: number, total: number, batch: CapturedBatch, receivedChars: number) => {
         options.onBatchTextProgress?.(index, total, batch, receivedChars);
@@ -507,10 +507,10 @@ export default function (pi: ExtensionAPI) {
           break;
       }
       if (currentConfig.value.showPruneStatusLine) {
-        setPruneStatusWidget(ctx, currentConfig.value, `prune: ${n} pending`);
+        setPruneStatusWidget(ctx, currentConfig.value, pendingTurnsText(currentConfig.value, n), statsAccum.getStats());
         safeNotify(
           ctx,
-          `pruner: ${n} turn${n === 1 ? "" : "s"} queued — will summarize on ${trigger}`,
+          `${pruneStatusText(currentConfig.value, undefined, pendingTurnsText(currentConfig.value, n))} — will summarize on ${trigger}`,
           "info"
         );
       }
@@ -543,7 +543,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", async (_event, ctx) => {
     if (!currentConfig.value.enabled) return;
     if (pendingBatches.length === 0) return;
-    setPruneStatusWidget(ctx, currentConfig.value, `prune: ${pendingBatches.length} pending`);
+    setPruneStatusWidget(ctx, currentConfig.value, pendingTurnsText(currentConfig.value, pendingBatches.length), statsAccum.getStats());
   });
 
   // ── context: prune summarized tool results from next LLM call ─────────────

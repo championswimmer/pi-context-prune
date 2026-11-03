@@ -46,10 +46,21 @@ class SettingsOverlay extends Container {
 
 // ── Status widget text ──────────────────────────────────────────────────────
 
-export function pruneStatusText(config: ContextPruneConfig, stats?: SummarizerStats): string {
+// Keep private-use glyphs opt-in: terminals without a Nerd Font need portable Unicode.
+function statusIcons(config: ContextPruneConfig) {
+  return config.useNerdFontIcons
+    ? { scissors: "\uf0c4", turns: "\uf021" } // nf-fa-scissors, nf-fa-refresh
+    : { scissors: "✂", turns: "↻" };
+}
+
+export function pendingTurnsText(config: ContextPruneConfig, count: number): string {
+  return `${count} ${statusIcons(config).turns} pending`;
+}
+
+export function pruneStatusText(config: ContextPruneConfig, stats?: SummarizerStats, status?: string): string {
   const mode = PRUNE_ON_MODES.find((m) => m.value === config.pruneOn)?.label ?? config.pruneOn;
-  let text = `prune: ${config.enabled ? "ON" : "OFF"} (${mode})`;
-  if (stats && stats.callCount > 0) {
+  let text = `${statusIcons(config).scissors} ${status ?? `${config.enabled ? "ON" : "OFF"} (${mode})`}`;
+  if (config.showPruneStatusCost && stats && stats.callCount > 0) {
     text += ` │ ↑${formatTokens(stats.totalInputTokens)} ↓${formatTokens(stats.totalOutputTokens)} ${formatCost(stats.totalCost)}`;
   }
   return text;
@@ -59,12 +70,15 @@ export function setPruneStatusWidget(
   ctx: { ui: { setStatus: (id: string, text?: string) => void } },
   config: ContextPruneConfig,
   value?: SummarizerStats | string,
+  stats?: SummarizerStats,
 ): void {
   if (!config.showPruneStatusLine) {
     ctx.ui.setStatus(STATUS_WIDGET_ID, undefined);
     return;
   }
-  ctx.ui.setStatus(STATUS_WIDGET_ID, typeof value === "string" ? value : pruneStatusText(config, value));
+  ctx.ui.setStatus(STATUS_WIDGET_ID, typeof value === "string"
+    ? pruneStatusText(config, stats, value)
+    : pruneStatusText(config, value));
 }
 
 // ── Subcommand list (for completions & interactive picker) ──────────────────
@@ -159,12 +173,12 @@ function remindUnprunedCountDescription(config: ContextPruneConfig): string {
   return `Inject a small <pruner-note> reminder before each LLM call. Currently ${base}, but has NO effect in '${config.pruneOn}' mode — only honored when prune trigger is 'agentic-auto'.`;
 }
 
+function pruneStatusLineLabel(config: ContextPruneConfig): string {
+  return !config.showPruneStatusLine ? "Hidden" : config.showPruneStatusCost ? "Status + cost" : "Status only";
+}
+
 function pruneStatusLineDescription(config: ContextPruneConfig): string {
-  const base = config.showPruneStatusLine ? "ON" : "OFF";
-  if (config.showPruneStatusLine) {
-    return `Show the prune footer status line and queued turn notifications. Currently ${base}.`;
-  }
-  return `Hide the prune footer status line and queued turn notifications. Currently ${base}.`;
+  return `Footer: ${pruneStatusLineLabel(config)}. Status includes mode, pending turns, and summarizing state; cost adds input/output tokens and dollars. Hidden also suppresses queued turn notifications.`;
 }
 
 function startupNoticeDescription(config: ContextPruneConfig): string {
@@ -400,9 +414,16 @@ export function registerCommands(
             {
               id: "showPruneStatusLine",
               label: "Prune status line",
-              values: ["true", "false"],
-              currentValue: String(config.showPruneStatusLine),
+              values: ["Hidden", "Status only", "Status + cost"],
+              currentValue: pruneStatusLineLabel(config),
               description: pruneStatusLineDescription(config),
+            },
+            {
+              id: "useNerdFontIcons",
+              label: "[labs] Use Nerd Font icon",
+              values: ["false", "true"],
+              currentValue: String(config.useNerdFontIcons),
+              description: "Use Nerd Font scissors and turn icons in status displays. Requires a Nerd Font in your terminal; off uses standard Unicode icons.",
             },
             {
               id: "showStartupNotice",
@@ -484,8 +505,11 @@ export function registerCommands(
             const newConfig = { ...currentConfig.value };
             if (id === "enabled") {
               newConfig.enabled = newValue === "true";
+            } else if (id === "useNerdFontIcons") {
+              newConfig.useNerdFontIcons = newValue === "true";
             } else if (id === "showPruneStatusLine") {
-              newConfig.showPruneStatusLine = newValue === "true";
+              newConfig.showPruneStatusLine = newValue !== "Hidden";
+              newConfig.showPruneStatusCost = newValue === "Status + cost";
               const statusLineItem = items.find((item) => item.id === "showPruneStatusLine");
               if (statusLineItem) {
                 statusLineItem.description = pruneStatusLineDescription(newConfig);
@@ -594,7 +618,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${cfg.showPruneStatusLine ? "on" : "off"}\n  startup:  ${cfg.showStartupNotice ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${pruneStatusLineLabel(cfg)}\n  icons:    ${cfg.useNerdFontIcons ? "Nerd Font (labs)" : "Unicode"}\n  startup:  ${cfg.showStartupNotice ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }

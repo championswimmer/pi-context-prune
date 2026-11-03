@@ -156,16 +156,17 @@ The extension registers the `/pruner` command:
 
 ### Settings overlay
 
-`/pruner settings` opens a TUI overlay with eight interactive items:
+`/pruner settings` opens a TUI overlay with nine interactive items:
 
 1. **Enabled** — toggle pruning on/off
-2. **Prune status line** — show or hide the footer status widget and queued turn notifications
-3. **Startup notice** — show or hide the passive `pruner loaded — ...` info notice on session start
-4. **Prune trigger** — cycle through all five `pruneOn` modes
-5. **Summarizer model** — press Enter to open a searchable submenu listing `"default"` plus all available models
-6. **Summarizer thinking** — cycle through the thinking/reasoning level used for summarizer calls
-7. **Remind unpruned count** — toggle the agentic-auto `<pruner-note>` reminder
-8. **Batching mode** — switch between per-turn and per-agent-message summaries
+2. **Prune status line** — choose **Hidden**, **Status only**, or **Status + cost** (input/output tokens and dollar cost)
+3. **[labs] Use Nerd Font icon** — switch scissors and turn-count icons from Unicode to Nerd Font glyphs (default off; requires a Nerd Font).
+4. **Startup notice** — show or hide the passive `pruner loaded — ...` info notice on session start
+5. **Prune trigger** — cycle through all five `pruneOn` modes
+6. **Summarizer model** — press Enter to open a searchable submenu listing `"default"` plus all available models
+7. **Summarizer thinking** — cycle through the thinking/reasoning level used for summarizer calls
+8. **Remind unpruned count** — toggle the agentic-auto `<pruner-note>` reminder
+9. **Batching mode** — switch between per-turn and per-agent-message summaries
 
 All changes are saved immediately to `~/.pi/agent/context-prune/settings.json` and reflected in the footer status widget when it is enabled.
 
@@ -202,6 +203,8 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 {
   "enabled": false,
   "showPruneStatusLine": true,
+  "showPruneStatusCost": true,
+  "useNerdFontIcons": false,
   "showStartupNotice": true,
   "summarizerModel": "default",
   "summarizerThinking": "default",
@@ -215,6 +218,8 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 |---|---|---|
 | `enabled` | `true` / `false` | `false` |
 | `showPruneStatusLine` | `true` / `false` | `true` |
+| `showPruneStatusCost` | `true` / `false` (tokens/cost in visible footer) | `true` |
+| `useNerdFontIcons` | `true` / `false` (requires a Nerd Font) | `false` |
 | `showStartupNotice` | `true` / `false` | `true` |
 | `summarizerModel` | `"default"` or `"provider/model-id"` | `"default"` |
 | `summarizerThinking` | `"default"`, `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` | `"default"` |
@@ -224,6 +229,8 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `batchingMode` | `"turn"` / `"agent-message"` | `"agent-message"` |
 
 - `showPruneStatusLine: true` keeps the prune footer widget and the automatic queued-turn notice visible. Turn it off if you want pruning to stay active without that extra status noise.
+- `showPruneStatusCost: false` keeps status (mode, pending turns, summarizing) without token/cost details. Defaults to `true` for backward compatibility. Configure all three display modes in `/pruner settings` → **Prune status line**; `/pruner stats` always remains available.
+- `useNerdFontIcons: true` enables **[labs] Use Nerd Font icon**: uses Nerd Font scissors (`nf-fa-scissors`, U+F0C4) and turn (`nf-fa-refresh`, U+F021) glyphs. Off by default: uses standard Unicode `✂` and `↻`. Install/select a Nerd Font in your terminal before enabling; both footer and queued notices use the selected icons.
 - `showStartupNotice: true` shows the passive `pruner loaded — pruning ON/OFF | model: ...` info notice when a session starts. Turn it off if you want startup to stay quiet; manual command output and real errors still appear.
 - `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
 - `notifySkipped: false` silences the "skipped pruning" warning shown when a summary would be larger than the raw tool output it replaces (pruning is skipped in that case; only the notification is suppressed).
@@ -361,11 +368,11 @@ before_agent_start (agentic-auto mode)
 
 The extension registers a status widget in the Pi footer that shows the current state:
 
-- `prune: OFF (On agent message)` — pruning disabled, showing what mode it would use
-- `prune: ON (On agent message)` — pruning active with the current trigger mode
-- `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003` — pruning active with cumulative stats (input/output tokens, cost)
-- `prune: 3 pending` — batches queued, waiting for the trigger
-- `prune: summarizing…` — currently running the summarizer LLM call
+- `✂ OFF (On agent message)` — pruning disabled, showing what mode it would use
+- `✂ ON (On agent message)` — pruning active with the current trigger mode
+- `✂ ON (Every turn) │ ↑1.2k ↓340 $0.003` — pruning active with cumulative stats (input/output tokens, cost)
+- `✂ 3 ↻ pending` — batches queued, waiting for the trigger
+- `✂ summarizing…` — currently running the summarizer LLM call
 - Live progress details are shown in richer surfaces instead: `/pruner now` uses a multi-row widget above the editor, and agentic-auto `context_prune` streams updates in the tool output box above the input
 - When `showPruneStatusLine` is `false`, the footer stays clear and the queued-turn notice is suppressed, but pruning still works normally.
 - When `showStartupNotice` is `false`, the passive `pruner loaded — ...` info notice is suppressed at session start.

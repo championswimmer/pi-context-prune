@@ -80,7 +80,7 @@ Single source of truth for all interfaces and constants:
 - **`PRUNE_ON_MODES`** — `{ value, label }` array for interactive selectors.
 - **`BATCHING_MODES`** — `{ value, label }` array for interactive selectors.
 - **`SUMMARIZER_THINKING_LEVELS`** — `{ value, label }` array for interactive selectors.
-- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode }` stored in `~/.pi/agent/context-prune/settings.json`.
+- **`ContextPruneConfig`** — `{ enabled, showPruneStatusLine, showPruneStatusCost, useNerdFontIcons, summarizerModel, summarizerThinking, pruneOn, remindUnprunedCount, batchingMode }` stored in `~/.pi/agent/context-prune/settings.json`.
 - **`SummarizerStats`** — cumulative token/cost stats: `{ totalInputTokens, totalOutputTokens, totalCost, callCount }`. Persisted via `pi.appendEntry(CUSTOM_TYPE_STATS, ...)`.
 - **`ProgressCallback`** — `(index, total, batch, stage: "start" | "done" | "skipped") => void` — progress callback fired by `flushPending` when processing batches sequentially. Only used when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
 - **`BatchTextProgressCallback`** — `(index, total, batch, receivedChars) => void` — live callback fired while the summarizer streams text for the active batch in `/pruner now`.
@@ -179,20 +179,21 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 
 ### `src/commands.ts` — `/pruner` command + settings overlay + renderer
 - **`SettingsOverlay`** — a TUI `Container` subclass that wraps a `SettingsList` with a `DynamicBorder` + title. Forwards `handleInput` and `invalidate` to the inner list so keyboard navigation works inside the overlay.
-- **`pruneStatusText(config, stats?)`** — formats the footer widget string including mode label and optional stats suffix: e.g. `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003`.
+- **`pruneStatusText(config, stats?, status?)`** — formats the footer widget string including mode label and optional stats suffix: e.g. `✂ ON (Every turn) │ ↑1.2k ↓340 $0.003`.
 - **`SUBCOMMANDS`** — `{ value, label }` array for tab-completion and the interactive picker. Includes `settings`, `on`, `off`, `status`, `model`, `thinking`, `prune-on`, `batching`, `stats`, `tree`, `now`, `help`.
 - **`HELP_TEXT`** — full explanation of all subcommands, batching mode guidance, prune-on mode guidance, and a note on prompt-cache impact.
 - **`getArgumentCompletions(prefix)`** — filters `SUBCOMMANDS` by prefix for tab-completion.
 - **Bare `/pruner`** (no args) — calls `ctx.ui.select()` to show an interactive picker over `SUBCOMMANDS`.
-- **`/pruner settings`** — opens an interactive `SettingsOverlay` (via `ctx.ui.custom()` with `overlay: true`) containing a `SettingsList` with eight items:
+- **`/pruner settings`** — opens an interactive `SettingsOverlay` (via `ctx.ui.custom()` with `overlay: true`) containing a `SettingsList` with nine items:
   1. **Enabled** — toggle between `true` / `false`
-  2. **Prune status line** — toggle the footer status widget and queued turn notifications on/off
-  3. **Startup notice** — toggle the passive `pruner loaded — ...` info notice on/off
-  4. **Prune trigger** — cycle through all five `PruneOn` modes
-  5. **Summarizer model** — shows current value; pressing Enter opens a searchable submenu listing `"default"` plus all models from `ctx.modelRegistry.getAvailable()`. Selecting a model saves immediately.
-  6. **Summarizer thinking** — cycle through all `SummarizerThinking` levels.
-  7. **Remind unpruned count** — toggle the agentic-auto `<pruner-note>` reminder on/off.
-  8. **Batching mode** — cycle between `"turn"` and `"agent-message"`.
+  2. **Prune status line** — choose Hidden, Status only, or Status + cost (tokens and dollars). Uses `showPruneStatusLine` plus `showPruneStatusCost` (default true for existing configs). Hidden also suppresses queued turn notices.
+  3. **[labs] Use Nerd Font icon** — switch scissors and turn-count icons from Unicode to Nerd Font glyphs (default off; requires a Nerd Font).
+  4. **Startup notice** — toggle the passive `pruner loaded — ...` info notice on/off
+  5. **Prune trigger** — cycle through all five `PruneOn` modes
+  6. **Summarizer model** — shows current value; pressing Enter opens a searchable submenu listing `"default"` plus all models from `ctx.modelRegistry.getAvailable()`. Selecting a model saves immediately.
+  7. **Summarizer thinking** — cycle through all `SummarizerThinking` levels.
+  8. **Remind unpruned count** — toggle the agentic-auto `<pruner-note>` reminder on/off.
+  9. **Batching mode** — cycle between `"turn"` and `"agent-message"`.
   All changes are persisted to `settings.json` on every toggle and the footer widget is updated when enabled.
 - **`/pruner on|off`** — enables/disables pruning, saves config, calls `syncToolActivation()`, updates footer widget.
 - **`/pruner status`** — shows enabled state, summarizer model, thinking level, prune trigger, batching mode, status line visibility, startup-notice visibility, and cumulative summarizer stats (calls, tokens, cost).
@@ -230,7 +231,7 @@ Accumulates cumulative token/cost stats for summarizer LLM calls and persists th
 | `context` handler returns `undefined` when no pruning occurs | Avoids unnecessary message-list reconstruction when nothing was filtered |
 | Stats persistence via `CUSTOM_TYPE_STATS` | Stats are snapshots persisted alongside index entries; on `session_start` / `session_tree`, the last snapshot is applied, matching the same lifecycle as the indexer |
 | `SummarizeResult` return type | Summarizer functions return `{ summaryText, usage }` so callers can accumulate token/cost data without side effects in the summarizer module |
-| Status widget includes stats suffix | Footer shows `prune: ON (Every turn) │ ↑1.2k ↓340 $0.003` after summarizer calls, giving users visibility into pruner overhead |
+| Status widget includes stats suffix | Footer shows `✂ ON (Every turn) │ ↑1.2k ↓340 $0.003` after summarizer calls, giving users visibility into pruner overhead |
 | Auth via `ctx.modelRegistry.getApiKeyAndHeaders()` | Explicit credential resolution for the summarizer LLM call, with error notification on failure |
 | `TreeBrowser` for `/pruner tree` | Gives users a visual, keyboard-navigable audit trail of what was pruned and how much space was saved, without leaving the Pi TUI |
 | `BorderedLoader` for `/pruner now` | The overlay captures TUI input while `flushPending` awaits the LLM call, preventing double-invocation and new model turns. Esc closes the overlay without cancelling the in-flight call. |

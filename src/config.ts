@@ -28,6 +28,14 @@ export async function loadConfig(): Promise<ContextPruneConfig> {
         typeof merged.showPruneStatusLine === "boolean"
           ? merged.showPruneStatusLine
           : DEFAULT_CONFIG.showPruneStatusLine,
+      showPruneStatusCost:
+        typeof merged.showPruneStatusCost === "boolean"
+          ? merged.showPruneStatusCost
+          : DEFAULT_CONFIG.showPruneStatusCost,
+      useNerdFontIcons:
+        typeof merged.useNerdFontIcons === "boolean"
+          ? merged.useNerdFontIcons
+          : DEFAULT_CONFIG.useNerdFontIcons,
       showStartupNotice:
         typeof merged.showStartupNotice === "boolean"
           ? merged.showStartupNotice
