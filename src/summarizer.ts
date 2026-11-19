@@ -190,17 +190,19 @@ export async function summarizeBatch(
 }
 
 /**
- * Summarizes multiple captured batches — one LLM call per batch, run in parallel.
+ * Summarizes multiple captured batches — one LLM call per batch, executed
+ * in parallel by default or serially when `config.batchExecution === "serial"`.
  *
  * Returns an array of per-batch results. Each element is either a SummarizeResult
  * (success) or null (that specific batch's call failed). The array length always
  * equals batches.length so callers can zip by index.
  *
- * Rationale for parallel-per-batch instead of a single merged call:
- *   • Each batch becomes its own summary message (one per turn), so they can be
- *     rendered, browsed, and recovered independently via context_tree_query.
- *   • Parallel calls give similar end-to-end latency to a single merged call while
- *     keeping the summaries strictly separated.
+ * Rationale for separate per-batch calls instead of a single merged call:
+ *   • Each batch becomes its own summary message, so they can be rendered,
+ *     browsed, and recovered independently via context_tree_query.
+ *   • Parallel execution (default) keeps end-to-end latency low; serial
+ *     execution can be opted into via settings to avoid overwhelming local
+ *     or single-slot inference servers with concurrent requests.
  */
 export async function summarizeBatches(
   batches: CapturedBatch[],
@@ -209,35 +211,45 @@ export async function summarizeBatches(
   options: SummarizeBatchesOptions = {}
 ): Promise<Array<SummarizeResult | null>> {
   if (batches.length === 0) return [];
-  // Single batch — delegate to the single-batch path (no extra overhead)
+
+  const runBatch = async (batch: CapturedBatch, index: number): Promise<SummarizeResult | null> => {
+    options.onProgress?.(index, batches.length, batch, "start");
+    const result = await summarizeBatch(batch, config, ctx, {
+      signal: options.signal,
+      sessionId: options.sessionId,
+      onUsage: (response) => options.onUsage?.(batch, response),
+      onTextProgress: (receivedChars) => {
+        options.onBatchTextProgress?.(index, batches.length, batch, receivedChars);
+      },
+    });
+    options.onProgress?.(index, batches.length, batch, result ? "done" : "skipped");
+    return result;
+  };
+
+  // Single batch — delegate directly (same for serial and parallel)
   if (batches.length === 1) {
-    return [
-      await summarizeBatch(batches[0], config, ctx, {
-        signal: options.signal,
-        sessionId: options.sessionId,
-        onUsage: (response) => options.onUsage?.(batches[0], response),
-        onTextProgress: (receivedChars) => {
-          options.onBatchTextProgress?.(0, 1, batches[0], receivedChars);
-        },
-      }),
-    ];
+    return [await runBatch(batches[0], 0)];
   }
 
+  // Serial — one LLM call at a time, in order. Stop on first failure because
+  // flushPending discards anything after the first null and restores the tail.
+  if (config.batchExecution === "serial") {
+    const results: Array<SummarizeResult | null> = new Array(batches.length).fill(null);
+    for (let index = 0; index < batches.length; index++) {
+      const result = await runBatch(batches[index], index);
+      results[index] = result;
+      if (!result) break;
+    }
+    return results;
+  }
+
+  // Parallel (default) — one LLM call per batch, all in flight simultaneously.
   // Wait for every in-flight call even on abort, so final usage callbacks and
   // stats persistence cannot race with flushPending's finally block.
   const settled = await Promise.allSettled(
-    batches.map((batch, index) =>
-      summarizeBatch(batch, config, ctx, {
-        signal: options.signal,
-        sessionId: options.sessionId,
-        onUsage: (response) => options.onUsage?.(batch, response),
-        onTextProgress: (receivedChars) => {
-          options.onBatchTextProgress?.(index, batches.length, batch, receivedChars);
-        },
-      })
-    )
+    batches.map((batch, index) => runBatch(batch, index))
   );
   const failure = settled.find((result) => result.status === "rejected");
   if (failure?.status === "rejected") throw failure.reason;
-  return settled.map((result) => result.status === "fulfilled" ? result.value : null);
+  return settled.map((result) => (result.status === "fulfilled" ? result.value : null));
 }

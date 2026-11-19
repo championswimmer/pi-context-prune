@@ -5,6 +5,7 @@ import {
   type FlushOptions,
   PRUNE_ON_MODES,
   BATCHING_MODES,
+  BATCH_EXECUTION_MODES,
   STATUS_WIDGET_ID,
   PROGRESS_WIDGET_ID,
   SUMMARIZER_THINKING_LEVELS,
@@ -165,6 +166,17 @@ function batchingModeDescription(mode: ContextPruneConfig["batchingMode"]): stri
   return "Per agent message (default): merges all assistant turns between two user messages into one summary. Recommended for normal use.";
 }
 
+function batchExecutionLabel(mode: ContextPruneConfig["batchExecution"]): string {
+  return BATCH_EXECUTION_MODES.find((m) => m.value === mode)?.label ?? mode;
+}
+
+function batchExecutionDescription(mode: ContextPruneConfig["batchExecution"]): string {
+  if (mode === "serial") {
+    return "Serial: summarize pending batches one at a time. Avoids concurrent requests on local or rate-limited setups.";
+  }
+  return "Parallel (default): summarize multiple pending batches concurrently. Faster on cloud APIs; switch to serial for local or rate-limited setups.";
+}
+
 function remindUnprunedCountDescription(config: ContextPruneConfig): string {
   const base = config.remindUnprunedCount ? "ON" : "OFF";
   if (config.pruneOn === "agentic-auto") {
@@ -226,6 +238,10 @@ Batching mode:
   - turn: each assistant turn that used tools gets its own summary block. Small and granular, but intended mainly for debugging / inspection.
   - agent-message (default): all assistant turns between two consecutive user messages are merged into one summary.
     Use this when a single user request triggers many back-to-back tool rounds that belong together.
+
+Batch calls (configurable in /pruner settings):
+  - parallel (default): summarize multiple pending batches concurrently for lower latency on cloud APIs.
+  - serial: summarize pending batches one at a time. Safe for local or rate-limited setups.
 
 Mode guidance:
   - every-turn: only for debugging / testing summary behavior. Rewrites earlier context too often and can repeatedly bust provider prompt caches.
@@ -496,6 +512,13 @@ export function registerCommands(
               currentValue: config.batchingMode,
               description: batchingModeDescription(config.batchingMode),
             },
+            {
+              id: "batchExecution",
+              label: "Batch calls",
+              values: BATCH_EXECUTION_MODES.map((m) => m.value),
+              currentValue: config.batchExecution,
+              description: batchExecutionDescription(config.batchExecution),
+            },
           ];
 
           let settingsList: SettingsList;
@@ -553,6 +576,12 @@ export function registerCommands(
               const batchingItem = items.find((item) => item.id === "batchingMode");
               if (batchingItem) {
                 batchingItem.description = batchingModeDescription(newConfig.batchingMode);
+              }
+            } else if (id === "batchExecution") {
+              newConfig.batchExecution = newValue as ContextPruneConfig["batchExecution"];
+              const batchExecutionItem = items.find((item) => item.id === "batchExecution");
+              if (batchExecutionItem) {
+                batchExecutionItem.description = batchExecutionDescription(newConfig.batchExecution);
               }
             }
             currentConfig.value = newConfig;
@@ -618,7 +647,7 @@ export function registerCommands(
             ? `\n  --- summarizer ---\n  calls:       ${s.callCount}\n  input:       ${formatTokens(s.totalInputTokens)} tokens\n  output:      ${formatTokens(s.totalOutputTokens)} tokens\n  cost:        ${formatCost(s.totalCost)}`
             : "\n  (no summarizer calls yet)";
           ctx.ui.notify(
-            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  status:   ${pruneStatusLineLabel(cfg)}\n  icons:    ${cfg.useNerdFontIcons ? "Nerd Font (labs)" : "Unicode"}\n  startup:  ${cfg.showStartupNotice ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
+            `pruner status:\n  enabled:  ${cfg.enabled}\n  model:    ${cfg.summarizerModel}\n  thinking: ${summarizerThinkingLabel(cfg.summarizerThinking)} (${cfg.summarizerThinking})\n  trigger:  ${mode}\n  batching: ${batchingModeLabel(cfg.batchingMode)} (${cfg.batchingMode})\n  calls:    ${batchExecutionLabel(cfg.batchExecution)} (${cfg.batchExecution})\n  status:   ${pruneStatusLineLabel(cfg)}\n  icons:    ${cfg.useNerdFontIcons ? "Nerd Font (labs)" : "Unicode"}\n  startup:  ${cfg.showStartupNotice ? "on" : "off"}\n  remind:   ${cfg.remindUnprunedCount ? "on" : "off"} (agentic-auto only)${statsLine}`,
           );
           break;
         }
