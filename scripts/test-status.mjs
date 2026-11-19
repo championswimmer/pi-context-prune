@@ -109,3 +109,15 @@ test('Nerd Font settings default off, reject invalid values, and persist both ch
     assert.equal((await loadConfig()).useNerdFontIcons, useNerdFontIcons);
   }
 });
+
+test('batchExecution defaults to parallel, rejects invalid values, and persists both choices', async () => {
+  assert.equal(DEFAULT_CONFIG.batchExecution, 'parallel');
+  for (const value of [undefined, null, 'sequential', 1, true, 'parallel']) {
+    writeFileSync(SETTINGS_PATH, JSON.stringify({ batchExecution: value }));
+    assert.equal((await loadConfig()).batchExecution, 'parallel');
+  }
+  for (const batchExecution of ['parallel', 'serial']) {
+    await saveConfig({ ...config, batchExecution });
+    assert.equal((await loadConfig()).batchExecution, batchExecution);
+  }
+});

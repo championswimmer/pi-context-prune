@@ -16,7 +16,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "./src/config.js";
 import { captureBatch, captureUnindexedBatchesFromSession, groupBatchesByMode } from "./src/batch-capture.js";
-import { summarizeBatch, summarizeBatches } from "./src/summarizer.js";
+import { summarizeBatches } from "./src/summarizer.js";
 import { ToolCallIndexer } from "./src/indexer.js";
 import { pruneMessages } from "./src/pruner.js";
 import { annotateWithUnprunedCount, countUnprunedToolCalls } from "./src/reminder.js";
@@ -169,13 +169,11 @@ export default function (pi: ExtensionAPI) {
   };
 
   // Summarizes + indexes all pending batches.
-  // When options.onProgress is provided batches are processed sequentially
-  // (one LLM call each) so the caller can update per-row UI. Otherwise all
-  // batches are summarized in parallel (one summarizeBatches call).
-  // Runtime delivery is used while the agent/tool loop is active so Pi can place
-  // steer messages at protocol-safe boundaries. Session delivery is used only for
-  // agent-message's final-message flush, where print-mode Pi may invalidate pi.*
-  // while the summarizer LLM call is in flight.
+  // Execution strategy (parallel vs serial) is controlled by config.batchExecution
+  // (default: "parallel"). Runtime delivery is used while the agent/tool loop is
+  // active so Pi can place steer messages at protocol-safe boundaries. Session
+  // delivery is used only for agent-message's final-message flush, where
+  // print-mode Pi may invalidate pi.* while the summarizer LLM call is in flight.
   const flushPending = async (ctx: any, options: FlushOptions = {}): Promise<FlushResult> => {
     if (isFlushing) return { ok: false, reason: "already-flushing" };
 
@@ -235,34 +233,15 @@ export default function (pi: ExtensionAPI) {
         options.onBatchTextProgress?.(index, total, batch, receivedChars);
       };
 
-      // Summarize batches. When onProgress is provided (i.e. /pruner now with the
-      // multi-row overlay) we process sequentially so each row can be checked off
-      // as its LLM call completes. Otherwise all batches run in parallel.
-      let results: (import("./src/types.js").SummarizeResult | null)[];
-      if (options.onProgress) {
-        results = [];
-        for (let i = 0; i < batches.length; i++) {
-          options.onProgress(i, batches.length, batches[i], "start");
-          const r = await summarizeBatch(batches[i], currentConfig.value, ctx, {
-            signal: options.signal,
-            sessionId: usageSessionId,
-            onUsage: (response) => onUsage(batches[i], response),
-            onTextProgress: (receivedChars) => {
-              reportBatchTextProgress(i, batches.length, batches[i], receivedChars);
-            },
-          });
-          results.push(r);
-          options.onProgress(i, batches.length, batches[i], r ? "done" : "skipped");
-        }
-      } else {
-        // Parallel — one LLM call per batch, all in flight simultaneously.
-        results = await summarizeBatches(batches, currentConfig.value, ctx, {
-          onBatchTextProgress: reportBatchTextProgress,
-          onUsage,
-          signal: options.signal,
-          sessionId: usageSessionId,
-        });
-      }
+      // Summarize batches according to config.batchExecution (parallel by default,
+      // or serial when opted in via settings).
+      const results = await summarizeBatches(batches, currentConfig.value, ctx, {
+        onProgress: options.onProgress,
+        onBatchTextProgress: reportBatchTextProgress,
+        onUsage,
+        signal: options.signal,
+        sessionId: usageSessionId,
+      });
 
       // Process results in order; stop at first null (individual call failure).
       // Batches before the first failure are persisted; remaining are restored to

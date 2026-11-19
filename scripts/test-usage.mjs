@@ -27,14 +27,24 @@ const batch = (id = 'a') => ({ turnIndex: 3, timestamp: 0, assistantText: '', to
 const response = (stopReason = 'stop') => ({ role: 'assistant', provider: 'anthropic', model: 'test-model', responseModel: 'actual-model',
   content: [{ type: 'text', text: 'much longer than x' }], stopReason, usage });
 const config = { summarizerModel: 'default', summarizerThinking: 'default' };
-function context(responses) {
-  let index = 0;
-  const errors = [];
+function context(responses, delayMs = 0) {
+  let index = 0, active = 0, maxActive = 0;
+  const errors = [], events = [];
   const ctx = { model: { provider: 'anthropic' }, ui: { notify: (...args) => errors.push(args) },
     modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: 'dummy' }), getProvider: () => ({
-      stream: () => { const result = responses[index++]; return { async *[Symbol.asyncIterator]() {}, result: async () => result }; },
+      stream: () => {
+        const call = index++;
+        const result = responses[call];
+        active++;
+        maxActive = Math.max(maxActive, active);
+        events.push(`start:${call}`);
+        return {
+          async *[Symbol.asyncIterator]() { if (delayMs) await new Promise((r) => setTimeout(r, delayMs)); },
+          result: async () => { active--; events.push(`end:${call}`); return result; },
+        };
+      },
     }) } };
-  return { ctx, errors };
+  return { ctx, errors, events, stats: () => ({ calls: index, maxActive }) };
 }
 
 test('one usage report for a paid oversized summary via appendUsage', async () => {
@@ -62,10 +72,69 @@ test('response without usage is not reported', () => {
 test('error and subsequent parallel responses report even if first summary fails', async () => {
   const { ctx } = context([response('error'), response()]);
   const calls = [];
-  const results = await summarizeBatches([batch('a'), batch('b')], config, ctx, { onUsage: (b, r) => calls.push([b.toolCalls[0].toolCallId, r.usage]) });
+  const results = await summarizeBatches(
+    [batch('a'), batch('b')],
+    { ...config, batchExecution: 'parallel' },
+    ctx,
+    { onUsage: (b, r) => calls.push([b.toolCalls[0].toolCallId, r.usage]) },
+  );
   assert.equal(results[0], null);
   assert.ok(results[1]);
   assert.deepEqual(calls.map(([id]) => id), ['a', 'b']);
+});
+
+test('summarizeBatches runs serially when batchExecution is serial and stops after failure', async () => {
+  const { ctx, events, stats } = context([response(), response(), response()], 10);
+  const progress = [];
+  const results = await summarizeBatches(
+    [batch('a'), batch('b'), batch('c')],
+    { ...config, batchExecution: 'serial' },
+    ctx,
+    { onProgress: (index, _total, _batch, stage) => progress.push(`${index}:${stage}`) },
+  );
+  assert.equal(results.length, 3);
+  assert.ok(results.every(Boolean));
+  assert.equal(stats().maxActive, 1);
+  assert.deepEqual(events, ['start:0', 'end:0', 'start:1', 'end:1', 'start:2', 'end:2']);
+  assert.deepEqual(progress, ['0:start', '0:done', '1:start', '1:done', '2:start', '2:done']);
+
+  // On failure in serial mode, stop before starting later batches and preserve array length.
+  const failRun = context([response('error'), response()]);
+  const failResults = await summarizeBatches([batch('a'), batch('b')], { ...config, batchExecution: 'serial' }, failRun.ctx);
+  assert.deepEqual(failResults, [null, null]);
+  assert.equal(failRun.stats().calls, 1);
+});
+
+test('summarizeBatches runs concurrently by default and when batchExecution is parallel', async () => {
+  for (const batchExecution of [undefined, 'parallel']) {
+    const { ctx, stats } = context([response(), response(), response()], 15);
+    const progress = [];
+    const results = await summarizeBatches(
+      [batch('a'), batch('b'), batch('c')],
+      { ...config, ...(batchExecution ? { batchExecution } : {}) },
+      ctx,
+      { onProgress: (index, _total, _batch, stage) => progress.push(`${index}:${stage}`) },
+    );
+    assert.equal(results.length, 3);
+    assert.ok(results.every(Boolean));
+    assert.equal(stats().maxActive, 3);
+    assert.deepEqual(progress.slice(0, 3), ['0:start', '1:start', '2:start']);
+    assert.equal(progress.filter((p) => p.endsWith(':done')).length, 3);
+  }
+});
+
+test('serial summarizeBatches stops before starting later batches when aborted', async () => {
+  const controller = new AbortController();
+  const { ctx, stats } = context([response('aborted'), response()]);
+  await assert.rejects(
+    summarizeBatches(
+      [batch('a'), batch('b')],
+      { ...config, batchExecution: 'serial' },
+      ctx,
+      { signal: controller.signal, onBatchTextProgress: () => controller.abort() },
+    ),
+  );
+  assert.equal(stats().calls, 1);
 });
 
 test('aborted final response still reports usage, even if signal fires during stream', async () => {

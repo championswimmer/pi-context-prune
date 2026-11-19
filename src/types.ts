@@ -125,6 +125,13 @@ export type PruneOn = "every-turn" | "on-context-tag" | "on-demand" | "agent-mes
  */
 export type BatchingMode = "turn" | "agent-message";
 
+/**
+ * How multiple pending batches are summarized during a flush.
+ * - "parallel" : all pending batches summarized concurrently (default)
+ * - "serial"   : one summarizer LLM call at a time, in order (safe for local / single-slot servers)
+ */
+export type BatchExecutionMode = "serial" | "parallel";
+
 /** Thinking/reasoning level requested for summarizer LLM calls. */
 export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -143,6 +150,12 @@ export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: str
 export const BATCHING_MODES: { value: BatchingMode; label: string }[] = [
   { value: "turn", label: "Per turn" },
   { value: "agent-message", label: "Per agent message" },
+];
+
+/** Choices for the batch-execution setting (used by commands and settings overlay) */
+export const BATCH_EXECUTION_MODES: { value: BatchExecutionMode; label: string }[] = [
+  { value: "parallel", label: "Parallel" },
+  { value: "serial", label: "Serial" },
 ];
 
 /** Choices for the prune-on setting (used by commands and settings overlay) */
@@ -196,6 +209,12 @@ export interface ContextPruneConfig {
    *                     (all turns between two user messages are merged; default)
    */
   batchingMode: BatchingMode;
+  /**
+   * Execution strategy when summarizing multiple pending batches in a flush.
+   * - "parallel" : run all pending batch summarizer calls concurrently (default)
+   * - "serial"   : run one summarizer call at a time (avoids concurrent requests on local setups)
+   */
+  batchExecution: BatchExecutionMode;
 }
 
 export const DEFAULT_CONFIG: ContextPruneConfig = {
@@ -210,6 +229,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   remindUnprunedCount: true,
   notifySkipped: true,
   batchingMode: "agent-message",
+  batchExecution: "parallel",
 };
 
 // ── Captured batch ─────────────────────────────────────────────────────────
@@ -341,8 +361,8 @@ export interface PruneFrontier {
 }
 
 /**
- * Progress callback invoked by `flushPending` when processing batches sequentially.
- * Only fired when the caller passes `onProgress` in `FlushOptions` (i.e. `/pruner now`).
+ * Progress callback invoked by `flushPending` / `summarizeBatches` before and after
+ * each batch summarizer call. Used by `/pruner now` to drive the multi-row progress widget.
  */
 export type ProgressCallback = (
   index: number,
@@ -364,9 +384,8 @@ export interface FlushOptions {
   /** Delivery path: "runtime" uses sendMessage/steer (default); "session" writes directly to session. */
   delivery?: "runtime" | "session";
   /**
-   * When provided, batches are processed sequentially (one LLM call each) instead of
-   * in parallel, and this callback is invoked before/after each batch. Used by
-   * `/pruner now` to drive the multi-row progress overlay.
+   * When provided, invoked before and after each batch summarizer call. Used by
+   * `/pruner now` to drive the multi-row progress widget.
    */
   onProgress?: ProgressCallback;
   /**
@@ -407,10 +426,12 @@ export interface SummarizeBatchOptions {
   sessionId?: string;
 }
 
-/** Options for summarizeBatches() when callers want live per-batch text progress. */
+/** Options for summarizeBatches() when callers want live per-batch progress or usage hooks. */
 export interface SummarizeBatchesOptions {
   /** Reports each completed provider call independently of batch persistence. */
   onUsage?: (batch: CapturedBatch, response: import("@earendil-works/pi-ai").AssistantMessage) => void;
+  /** Invoked before and after each batch summarizer call. */
+  onProgress?: ProgressCallback;
   /** Receives streamed summary text character counts for each batch. */
   onBatchTextProgress?: BatchTextProgressCallback;
   /**
