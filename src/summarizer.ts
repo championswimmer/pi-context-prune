@@ -1,9 +1,9 @@
 import { normalizeContext, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { parseModelIdentity } from "pi-extension-settings-tui/schema";
 import type {
   CapturedBatch,
   ContextPruneConfig,
-  SummarizerThinking,
   SummarizeBatchOptions,
   SummarizeBatchesOptions,
   SummarizeResult,
@@ -19,11 +19,11 @@ For each tool call provide:
 Keep each tool call to 1-3 bullet points. Be concise.`;
 
 export function summarizerThinkingOptions(config: ContextPruneConfig): Record<string, unknown> {
-  const level: SummarizerThinking = config.summarizerThinking;
-  if (level === "default") {
+  if (!config.summarizerModel) {
     return {};
   }
 
+  const level = config.summarizerModel.thinkingLevel;
   // stream()/complete() accept provider-level options. For reasoning-capable providers,
   // pi-ai adapters translate reasoningEffort into the provider-specific field.
   // "off" intentionally sends no effort; adapters that support explicit disable
@@ -33,30 +33,27 @@ export function summarizerThinkingOptions(config: ContextPruneConfig): Record<st
 
 /**
  * Returns the model to use for summarization.
- * config.summarizerModel === "default" => ctx.model
- * "provider/model-id" => ctx.modelRegistry.find(provider, modelId), fallback to ctx.model with warning
+ * config.summarizerModel === null => ctx.model
+ * { model: "provider/model-id", thinkingLevel } => ctx.modelRegistry.find(provider, modelId), fallback to ctx.model with warning
  */
 export function resolveModel(config: ContextPruneConfig, ctx: ExtensionContext): any {
-  if (config.summarizerModel === "default") {
+  if (!config.summarizerModel) {
     return ctx.model;
   }
 
-  const slashIndex = config.summarizerModel.indexOf("/");
-  if (slashIndex === -1) {
+  const parsed = parseModelIdentity(config.summarizerModel.model);
+  if (!parsed) {
     ctx.ui.notify(
-      `pruner: invalid summarizerModel "${config.summarizerModel}", expected "provider/model-id". Falling back to default model.`,
+      `pruner: invalid summarizerModel "${config.summarizerModel.model}", expected "provider/model-id". Falling back to default model.`,
       "warning"
     );
     return ctx.model;
   }
 
-  const provider = config.summarizerModel.slice(0, slashIndex);
-  const modelId = config.summarizerModel.slice(slashIndex + 1);
-
-  const found = ctx.modelRegistry.find(provider, modelId);
+  const found = ctx.modelRegistry.find(parsed.provider, parsed.id);
   if (!found) {
     ctx.ui.notify(
-      `pruner: model "${config.summarizerModel}" not found in registry. Falling back to default model.`,
+      `pruner: model "${config.summarizerModel.model}" not found in registry. Falling back to default model.`,
       "warning"
     );
     return ctx.model;

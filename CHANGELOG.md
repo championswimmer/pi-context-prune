@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.0.0
+
+### Breaking Changes
+- **Minimum Pi version**: Requires `@earendil-works/pi-coding-agent >= 1.5.0`.
+- **Unified `summarizerModel` format**: Replaced separate string `summarizerModel` and `summarizerThinking` keys with a unified `summarizerModel` object (`{ model, thinkingLevel } | null`). Existing v2.x settings files are automatically migrated in place on startup (removing `summarizerThinking` and mapping legacy `"default"` thinking to `"off"` when paired with an explicit model).
+
+### Added
+- Declarative TUI settings dialog powered by `pi-extension-settings-tui` with `General`, `Summarizer`, and `Display` tabs, provenance indicators, and Restore defaults.
+- Global (`~/.pi/agent/context-prune/settings.json`) and trust-gated Project (`<cwd>/.pi/context-prune/settings.json`) scopes with scope switching.
+- Unified 2-step Scoped/All fuzzy model + thinking picker for selecting a summarizer model.
+- Fullscreen mouse support and automatic RPC fallback for `/pruner settings`.
+- `notifySkipped` toggle in the `Display` tab.
+- `max` thinking level support (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+
+### Changed
+- Override-only hardened JSON persistence (`0o700`/`0o600` atomic writes, symlink/size/secret-key guards, optimistic concurrency) via `pi-extension-settings-tui`.
+
 ## 2.2.0
 
 ### Added

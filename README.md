@@ -33,7 +33,7 @@ The extension does append its own custom summary/index/frontier/stats entries to
 
 ## Installation
 
-Requires Pi `@earendil-works/pi-coding-agent` **0.86.0 or later** for session usage entries.
+Requires Pi `@earendil-works/pi-coding-agent` **1.5.0 or later**.
 
 ### Install from npm (stable releases)
 
@@ -136,15 +136,16 @@ The extension registers the `/pruner` command:
 | Command | Effect |
 |---|---|
 | `/pruner` | Interactive picker over all subcommands |
-| `/pruner settings` | Opens an interactive settings overlay |
+| `/pruner settings` | Opens a tabbed, mouse-capable TUI settings overlay powered by `pi-extension-settings-tui` (with RPC fallback) |
 | `/pruner on` | Enable pruning |
 | `/pruner off` | Disable pruning |
-| `/pruner status` | Show enabled state, summarizer model, thinking level, prune trigger, batching mode, notices, and cumulative stats |
-| `/pruner model` | Show current summarizer model |
-| `/pruner model <id>` | Set summarizer model (e.g. `anthropic/claude-haiku-3-5`) |
+| `/pruner status` | Show enabled state, summarizer model & thinking level, prune trigger, batching mode, notices, and cumulative stats |
+| `/pruner model` | Show current summarizer model and thinking level |
+| `/pruner model default` | Reset summarizer model to the active session model |
+| `/pruner model <id>` | Set explicit summarizer model (e.g. `anthropic/claude-haiku-3-5`) |
 | `/pruner model <id>:<thinking>` | Set summarizer model and thinking together (e.g. `openai/gpt-5-mini:low`) |
 | `/pruner thinking` | Show current summarizer thinking level |
-| `/pruner thinking <level>` | Set summarizer thinking (`default`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`) |
+| `/pruner thinking <level>` | Set summarizer thinking (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) for an explicit summarizer model |
 | `/pruner prune-on` | Interactive picker over all trigger modes |
 | `/pruner prune-on <mode>` | Set trigger mode directly |
 | `/pruner batching` | Interactive picker over batching modes |
@@ -156,20 +157,24 @@ The extension registers the `/pruner` command:
 
 ### Settings overlay
 
-`/pruner settings` opens a TUI overlay with ten interactive items:
+`/pruner settings` opens a tabbed, mouse-capable TUI overlay powered by `pi-extension-settings-tui` (with automatic RPC fallback when no interactive TUI is available):
 
-1. **Enabled** — toggle pruning on/off
-2. **Prune status line** — choose **Hidden**, **Status only**, or **Status + cost** (input/output tokens and dollar cost)
-3. **[labs] Use Nerd Font icon** — switch scissors and turn-count icons from Unicode to Nerd Font glyphs (default off; requires a Nerd Font).
-4. **Startup notice** — show or hide the passive `pruner loaded — ...` info notice on session start
-5. **Prune trigger** — cycle through all five `pruneOn` modes
-6. **Summarizer model** — press Enter to open a searchable submenu listing `"default"` plus all available models
-7. **Summarizer thinking** — cycle through the thinking/reasoning level used for summarizer calls
-8. **Remind unpruned count** — toggle the agentic-auto `<pruner-note>` reminder
-9. **Batching mode** — switch between per-turn and per-agent-message summaries
-10. **Batch calls** — switch between **parallel** (default, concurrent batch calls) and **serial** (one summarizer call at a time)
+- **General** tab:
+  - **Enabled** — toggle pruning on/off
+  - **Prune trigger** — pick from all five `pruneOn` modes
+  - **Remind unpruned count** — toggle the `agentic-auto` `<pruner-note>` reminder
+- **Summarizer** tab:
+  - **Summarizer model** — unified 2-step model + thinking picker (Scoped/All toggle + fuzzy search), or reset to **Active model (default)**
+  - **Batching mode** — switch between per-agent-message and per-turn summaries
+  - **Batch calls** — switch between **Parallel** (default, concurrent batch calls) and **Serial** (one summarizer call at a time)
+- **Display** tab:
+  - **Prune status line** — show or hide the footer status widget and queued turn notifications
+  - **Show tokens & cost** — include cumulative summarizer tokens and dollar cost in the visible footer (shown when the status line is visible)
+  - **[labs] Use Nerd Font icons** — switch scissors and turn-count icons from Unicode to Nerd Font glyphs (default off; requires a Nerd Font)
+  - **Startup notice** — show or hide the passive `pruner loaded — ...` info notice on session start
+  - **Notify skipped prunes** — show or silence the warning when pruning is skipped because a summary was larger than the raw tool output
 
-All changes are saved immediately to `~/.pi/agent/context-prune/settings.json` and reflected in the footer status widget when it is enabled.
+The dialog also supports **Global** + trusted **Project** scope switching, provenance indicators showing where each effective value comes from, and **Restore defaults** for the active scope. All changes are saved immediately (override-only JSON persistence) and reflected in the footer status widget and active tool list.
 
 ## Tools
 
@@ -198,23 +203,25 @@ The tool is guided by a system prompt that instructs the model to use it after c
 
 ## Configuration
 
-Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-independent):
+Settings use override-only JSON persistence via `pi-extension-settings-tui` across two scopes:
+
+- **Global**: `~/.pi/agent/context-prune/settings.json` (honors `PI_CODING_AGENT_DIR`)
+- **Project** (optional, trust-gated): `<cwd>/.pi/context-prune/settings.json` (loaded only when the current project is trusted by Pi)
+
+Only keys that differ from their defaults are written to disk. For example:
 
 ```json
 {
-  "enabled": false,
-  "showPruneStatusLine": true,
-  "showPruneStatusCost": true,
-  "useNerdFontIcons": false,
-  "showStartupNotice": true,
-  "summarizerModel": "default",
-  "summarizerThinking": "default",
-  "pruneOn": "agentic-auto",
-  "remindUnprunedCount": true,
-  "batchingMode": "agent-message",
-  "batchExecution": "parallel"
+  "enabled": true,
+  "summarizerModel": {
+    "model": "openrouter/qwen/qwen3-30b-a3b",
+    "thinkingLevel": "low"
+  },
+  "pruneOn": "agentic-auto"
 }
 ```
+
+> **Upgrading from v2.x:** Legacy string `summarizerModel` (`"default"` or `"provider/model-id"`) and separate `summarizerThinking` keys are automatically migrated in place to the v3 `summarizerModel` object format on startup, and the obsolete `summarizerThinking` key is removed.
 
 | Key | Values | Default |
 |---|---|---|
@@ -223,8 +230,7 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `showPruneStatusCost` | `true` / `false` (tokens/cost in visible footer) | `true` |
 | `useNerdFontIcons` | `true` / `false` (requires a Nerd Font) | `false` |
 | `showStartupNotice` | `true` / `false` | `true` |
-| `summarizerModel` | `"default"` or `"provider/model-id"` | `"default"` |
-| `summarizerThinking` | `"default"`, `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` | `"default"` |
+| `summarizerModel` | `null` or `{ "model": "provider/model-id", "thinkingLevel": "<level>" }` | `null` |
 | `pruneOn` | `"every-turn"`, `"on-context-tag"`, `"on-demand"`, `"agent-message"`, `"agentic-auto"` | `"agentic-auto"` |
 | `remindUnprunedCount` | `true` / `false` | `true` |
 | `notifySkipped` | `true` / `false` | `true` |
@@ -232,23 +238,19 @@ Config is stored in `~/.pi/agent/context-prune/settings.json` (global, project-i
 | `batchExecution` | `"parallel"` / `"serial"` | `"parallel"` |
 
 - `showPruneStatusLine: true` keeps the prune footer widget and the automatic queued-turn notice visible. Turn it off if you want pruning to stay active without that extra status noise.
-- `showPruneStatusCost: false` keeps status (mode, pending turns, summarizing) without token/cost details. Defaults to `true` for backward compatibility. Configure all three display modes in `/pruner settings` → **Prune status line**; `/pruner stats` always remains available.
-- `useNerdFontIcons: true` enables **[labs] Use Nerd Font icon**: uses Nerd Font scissors (`nf-fa-scissors`, U+F0C4) and turn (`nf-fa-refresh`, U+F021) glyphs. Off by default: uses standard Unicode `✂` and `↻`. Install/select a Nerd Font in your terminal before enabling; both footer and queued notices use the selected icons.
+- `showPruneStatusCost: false` keeps status (mode, pending turns, summarizing) without token/cost details. Defaults to `true` for backward compatibility. Configure both in `/pruner settings` → **Display**; `/pruner stats` always remains available.
+- `useNerdFontIcons: true` enables **[labs] Use Nerd Font icons**: uses Nerd Font scissors (`nf-fa-scissors`, U+F0C4) and turn (`nf-fa-refresh`, U+F021) glyphs. Off by default: uses standard Unicode `✂` and `↻`. Install/select a Nerd Font in your terminal before enabling; both footer and queued notices use the selected icons.
 - `showStartupNotice: true` shows the passive `pruner loaded — pruning ON/OFF | model: ...` info notice when a session starts. Turn it off if you want startup to stay quiet; manual command output and real errors still appear.
 - `remindUnprunedCount: true` appends a small ephemeral `<pruner-note>` to the last tool result before each LLM call to remind the model of the number of unpruned tool calls in context. This only has an effect when `pruneOn` is set to `"agentic-auto"`.
 - `notifySkipped: false` silences the "skipped pruning" warning shown when a summary would be larger than the raw tool output it replaces (pruning is skipped in that case; only the notification is suppressed).
 - `batchingMode: "turn"` keeps one summary per assistant tool-using turn. This is mainly useful for debugging or closely inspecting prune behavior. `batchingMode: "agent-message"` is the default and recommended setting because it merges all assistant turns between two user messages into one summary.
-- `batchExecution: "parallel"` (default) summarizes pending batches concurrently for lower latency on cloud APIs. Switch to `"serial"` in `/pruner settings` → **Batch calls** to run one summarizer call at a time so local or single-concurrency inference setups are not hit with simultaneous requests.
-
-- `summarizerModel: "default"` means the current active Pi model. An explicit value like `"anthropic/claude-haiku-3-5"` uses that model for summarization (must be registered in Pi and have an API key).
-- `summarizerThinking: "default"` preserves old behavior: no explicit thinking/reasoning option is added to summarizer calls.
-- `summarizerThinking: "off"` requests no summarizer reasoning where the provider adapter supports an explicit disable path. Some providers may still fall back to their own default behavior.
-- `"minimal"`, `"low"`, `"medium"`, `"high"`, and `"xhigh"` request that thinking level for summarizer calls where supported. For cheap background summarization, prefer `"minimal"` or `"low"` with a small/fast model.
-- Settings are persisted on every change via the `/pruner` command or the settings overlay.
+- `batchExecution: "parallel"` (default) summarizes pending batches concurrently for lower latency on cloud APIs. Switch to `"serial"` in `/pruner settings` → **Summarizer** → **Batch calls** to run one summarizer call at a time so local or single-concurrency inference setups are not hit with simultaneous requests.
+- `summarizerModel: null` means the current active Pi session model (`ctx.model`) and its default thinking. An explicit object `{ "model": "provider/model-id", "thinkingLevel": "<level>" }` uses that model (must be registered in Pi and have an API key) with `thinkingLevel` set to `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"`. For cheap background summarization, prefer `"off"`, `"minimal"`, or `"low"` with a small/fast model.
+- Settings are persisted on every change via `/pruner` subcommands or `/pruner settings`.
 
 ### Choosing a Summarizer Model
 
-The default (`"default"`) reuses whatever model you have active in Pi. **This is convenient but wasteful** — you don't need a powerful coding model to write a bullet-point summary of tool outputs. Using a cheaper, faster model here reduces both latency and cost without any quality trade-off.
+The default (`null`) reuses whatever model you have active in Pi. **This is convenient but wasteful** — you don't need a powerful coding model to write a bullet-point summary of tool outputs. Using a cheaper, faster model here reduces both latency and cost without any quality trade-off.
 
 > **Rule of thumb:** pick the smallest/fastest model available on your current subscription or API plan.
 
@@ -272,12 +274,14 @@ Set it with:
 /pruner settings
 ```
 
-Or directly in `~/.pi/agent/context-prune/settings.json`:
+Or directly in `~/.pi/agent/context-prune/settings.json` (or `<cwd>/.pi/context-prune/settings.json` for a trusted project):
 
 ```json
 {
-  "summarizerModel": "openrouter/qwen/qwen3-30b-a3b",
-  "summarizerThinking": "low"
+  "summarizerModel": {
+    "model": "openrouter/qwen/qwen3-30b-a3b",
+    "thinkingLevel": "low"
+  }
 }
 ```
 
@@ -288,7 +292,7 @@ index.ts                    — TypeScript source entry point, wires events + mo
 dist/index.js               — generated ESM bundle shipped in the npm package
 src/
   types.ts                  — shared types, constants, PruneOn modes
-  config.ts                 — load/save ~/.pi/agent/context-prune/settings.json
+  config.ts                 — pi-extension-settings-tui schema, Global/Project persistence, v2→v3 migration
   batch-capture.ts          — capture turn_end/session-branch tool results → CapturedBatch
   summarizer.ts             — resolve model, stream LLM summaries, report final usage
   indexer.ts                — Map<toolCallId, ToolCallRecord> + session persistence
@@ -302,14 +306,14 @@ src/
   stats.ts                  — StatsAccumulator for cumulative token/cost tracking
   usage-report.ts           — record provider usage in Pi session entries
   tree-browser.ts           — foldable tree browser for /pruner tree
-  commands.ts               — /pruner command, settings overlay, widgets, and message renderer
+  commands.ts               — /pruner command, pi-extension-settings-tui dialog, widgets, and message renderer
 ```
 
 ### Event flow
 
 ```
 session_start
-  └─► loadConfig()              read ~/.pi/agent/context-prune/settings.json
+  └─► loadConfig({ persistMigration: true })  read global + trusted project settings; migrate v2→v3 in place
   └─► indexer.reconstruct()     rebuild Map from session branch entries
   └─► statsAccum.reconstruct()  rebuild stats from session branch entries
   └─► frontier.reconstruct()    rebuild last prune-attempt boundary from session entries
@@ -361,7 +365,7 @@ before_agent_start (agentic-auto mode)
 
 ### Session persistence
 
-- **Config** lives in `<agentDir>/context-prune/settings.json` (normally `~/.pi/agent/`, honoring `PI_CODING_AGENT_DIR`) — independent of Pi's project settings
+- **Config** uses `pi-extension-settings-tui` override-only JSON persistence in `<agentDir>/context-prune/settings.json` (normally `~/.pi/agent/`, honoring `PI_CODING_AGENT_DIR`) and optional trusted project overrides in `<cwd>/.pi/context-prune/settings.json`
 - **Summarizer usage** is recorded once per final provider response with usage, including failed or oversized summaries. Pi `type: "usage"` entries drive its footer and `/session`, and pi-stats (>= 0.5.0) now reads those usage entries directly, so no extra sidecar mirror is needed.
 - **Index** is persisted via `pi.appendEntry("context-prune-index", { toolCalls })` — one entry per summarized batch, NOT in LLM context
 - **Prune frontier** is persisted via `pi.appendEntry("context-prune-frontier", ...)` — it records the last attempted prune boundary even when an oversized summary is rejected
@@ -396,4 +400,3 @@ The extension registers a status widget in the Pi footer that shows the current 
 - Batch multiple turn summaries into a single meta-summary at compaction time
 - ~~`/pruner original-tree`~~ ✅ `/pruner tree` foldable tree browser — done
 - Configurable pruning policy (prune only large tool results, prune by token count threshold)
-- Tighter `/settings` integration once Pi exposes a settings UI API

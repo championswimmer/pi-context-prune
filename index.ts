@@ -14,7 +14,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { loadConfig } from "./src/config.js";
+import { formatSummarizerModel, loadConfig } from "./src/config.js";
 import { captureBatch, captureUnindexedBatchesFromSession, groupBatchesByMode } from "./src/batch-capture.js";
 import { summarizeBatches } from "./src/summarizer.js";
 import { ToolCallIndexer } from "./src/indexer.js";
@@ -405,8 +405,13 @@ export default function (pi: ExtensionAPI) {
 
   // ── session_start: restore config + index + stats ────────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
-    // Load config from ~/.pi/agent/context-prune/settings.json
-    currentConfig.value = await loadConfig();
+    // Load effective config (defaults -> global -> trusted project), migrating legacy v2 keys in place.
+    const trustedProject = typeof ctx.isProjectTrusted === "function" ? ctx.isProjectTrusted() : false;
+    currentConfig.value = await loadConfig({
+      cwd: ctx.cwd,
+      trustedProject,
+      persistMigration: true,
+    });
 
     // Rebuild in-memory index, stats accumulator and prune frontier from persisted session entries
     hydrateFromSession(ctx);
@@ -422,7 +427,7 @@ export default function (pi: ExtensionAPI) {
 
     if (currentConfig.value.showStartupNotice) {
       ctx.ui.notify(
-        `pruner loaded — pruning ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${currentConfig.value.summarizerModel}`,
+        `pruner loaded — pruning ${currentConfig.value.enabled ? "ON" : "OFF"} | model: ${formatSummarizerModel(currentConfig.value.summarizerModel)}`,
         "info"
       );
     }

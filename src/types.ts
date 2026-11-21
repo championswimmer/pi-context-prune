@@ -13,13 +13,14 @@
  *   - Runtime state: Map<toolCallId, ToolCallRecord> rebuilt on session_start
  *   - Session metadata: pi.appendEntry("context-prune-index", IndexEntryData)
  *     stored once per summarized batch; NOT in LLM context
- *   - User config: .pi/settings.json → "contextPrune" key (JSON merge safe,
- *     Pi preserves unknown keys when rewriting settings files)
+ *   - User config: ~/.pi/agent/context-prune/settings.json (global) and
+ *     <cwd>/.pi/context-prune/settings.json (trusted project overrides), managed
+ *     via `pi-extension-settings-tui` (override-only JSON persistence).
  *
- * CONFIG FORMAT (Ph1 step 4):
- *   { "contextPrune": { "enabled": false, "summarizerModel": "default", "showPruneStatusLine": true, "showStartupNotice": true } }
- *   summarizerModel: "default" = use current active model (ctx.model)
- *                   "provider/model-id" = explicit model via ctx.modelRegistry.find()
+ * CONFIG FORMAT (v3):
+ *   { "enabled": true, "summarizerModel": { "model": "provider/model-id", "thinkingLevel": "low" } }
+ *   summarizerModel: null = use current active model (ctx.model) and its default thinking
+ *                    { model: "provider/model-id", thinkingLevel } = explicit model + thinking level
  *
  * SUMMARY MESSAGE FORMAT (Ph1 step 5):
  *   customType: "context-prune-summary"
@@ -41,6 +42,14 @@
  *   - "default" summarizer = ctx.model (current active model + its credentials),
  *     NOT a hidden side-channel. It makes an explicit LLM call from turn_end.
  */
+
+import {
+  MODEL_THINKING_LEVELS,
+  type ModelSelection,
+  type ModelThinkingLevel,
+} from "pi-extension-settings-tui/schema";
+
+export type { ModelSelection, ModelThinkingLevel };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -132,19 +141,21 @@ export type BatchingMode = "turn" | "agent-message";
  */
 export type BatchExecutionMode = "serial" | "parallel";
 
-/** Thinking/reasoning level requested for summarizer LLM calls. */
-export type SummarizerThinking = "default" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+/** Thinking/reasoning level requested for explicit summarizer LLM calls. */
+export type SummarizerThinking = ModelThinkingLevel;
 
-/** Choices for the summarizer thinking setting (used by commands and settings overlay) */
+/** Choices for the summarizer thinking setting (used by CLI commands and help) */
 export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: string }[] = [
-  { value: "default", label: "Default" },
   { value: "off", label: "Off" },
   { value: "minimal", label: "Minimal" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "xhigh", label: "XHigh" },
+  { value: "max", label: "Max" },
 ];
+
+export { MODEL_THINKING_LEVELS };
 
 /** Choices for the batching-mode setting (used by commands and settings overlay) */
 export const BATCHING_MODES: { value: BatchingMode; label: string }[] = [
@@ -167,8 +178,8 @@ export const PRUNE_ON_MODES: { value: PruneOn; label: string }[] = [
   { value: "agentic-auto", label: "Agentic auto" },
 ];
 
-/** Extension config stored in ~/.pi/agent/context-prune/settings.json */
-export interface ContextPruneConfig {
+/** Extension config stored in ~/.pi/agent/context-prune/settings.json (and optional trusted project overrides) */
+export interface ContextPruneConfig extends Record<string, unknown> {
   /** Whether to prune raw tool outputs from future LLM context */
   enabled: boolean;
   /** Whether to show the prune footer status line and queued turn notifications */
@@ -180,13 +191,11 @@ export interface ContextPruneConfig {
   /** Whether to show the passive "pruner loaded" notice when a session starts */
   showStartupNotice: boolean;
   /**
-   * Which model to use for summarization.
-   * "default" = current active Pi model (ctx.model)
-   * "provider/model-id" = explicit model (e.g. "anthropic/claude-haiku-3-5")
+   * Model and thinking level used for summarization.
+   * `null` = current active Pi session model (ctx.model) and its default thinking
+   * `{ model: "provider/model-id", thinkingLevel }` = explicit model + thinking level
    */
-  summarizerModel: string;
-  /** Thinking/reasoning level to request for summarizer calls. */
-  summarizerThinking: SummarizerThinking;
+  summarizerModel: ModelSelection | null;
   /** When to trigger summarization and pruning */
   pruneOn: PruneOn;
   /**
@@ -223,8 +232,7 @@ export const DEFAULT_CONFIG: ContextPruneConfig = {
   showPruneStatusCost: true,
   useNerdFontIcons: false,
   showStartupNotice: true,
-  summarizerModel: "default",
-  summarizerThinking: "default",
+  summarizerModel: null,
   pruneOn: "agentic-auto",
   remindUnprunedCount: true,
   notifySkipped: true,

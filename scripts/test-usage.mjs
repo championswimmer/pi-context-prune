@@ -20,13 +20,13 @@ await build({
   outExtension: { '.js': '.mjs' },
 });
 const report = await import(pathToFileURL(join(temp, 'usage-report.mjs')));
-const { summarizeBatch, summarizeBatches } = await import(pathToFileURL(join(temp, 'summarizer.mjs')));
+const { summarizeBatch, summarizeBatches, summarizerThinkingOptions, resolveModel } = await import(pathToFileURL(join(temp, 'summarizer.mjs')));
 const usage = { input: 12, output: 4, cacheRead: 2, cacheWrite: 0, totalTokens: 18,
   cost: { input: .1, output: .2, cacheRead: .03, cacheWrite: 0, total: .33 } };
 const batch = (id = 'a') => ({ turnIndex: 3, timestamp: 0, assistantText: '', toolCalls: [{ toolCallId: id, toolName: 'bash', args: {}, resultText: 'x', isError: false }] });
 const response = (stopReason = 'stop') => ({ role: 'assistant', provider: 'anthropic', model: 'test-model', responseModel: 'actual-model',
   content: [{ type: 'text', text: 'much longer than x' }], stopReason, usage });
-const config = { summarizerModel: 'default', summarizerThinking: 'default' };
+const config = { summarizerModel: null };
 function context(responses, delayMs = 0) {
   let index = 0, active = 0, maxActive = 0;
   const errors = [], events = [];
@@ -190,6 +190,49 @@ test('session id is forwarded to provider stream options', async () => {
   await summarizeBatch(batch(), config, ctx, { sessionId: 'sess-abc' });
   await summarizeBatches([batch('a'), batch('b')], config, ctx, { sessionId: 'sess-abc' });
   assert.deepEqual(captured, ['sess-abc', 'sess-abc', 'sess-abc']);
+});
+
+test('summarizerThinkingOptions and resolveModel handle null and explicit model selections', () => {
+  const activeModel = { provider: 'anthropic', id: 'claude-sonnet-4-5' };
+  const findCalls = [];
+  const registryModels = new Map([
+    ['openai/gpt-4.1-mini', { provider: 'openai', id: 'gpt-4.1-mini' }],
+    ['openrouter/qwen/qwen3-coder:exacto', { provider: 'openrouter', id: 'qwen/qwen3-coder:exacto' }],
+    ['anthropic/claude-opus-4-6', { provider: 'anthropic', id: 'claude-opus-4-6' }],
+  ]);
+  const notifications = [];
+  const ctx = {
+    model: activeModel,
+    ui: { notify: (...args) => notifications.push(args) },
+    modelRegistry: {
+      find: (provider, id) => {
+        findCalls.push([provider, id]);
+        return registryModels.get(`${provider}/${id}`);
+      },
+    },
+  };
+
+  assert.deepEqual(summarizerThinkingOptions({ summarizerModel: null }), {});
+  assert.equal(resolveModel({ summarizerModel: null }, ctx), activeModel);
+
+  const openaiConfig = { summarizerModel: { model: 'openai/gpt-4.1-mini', thinkingLevel: 'low' } };
+  assert.deepEqual(summarizerThinkingOptions(openaiConfig), { reasoningEffort: 'low' });
+  assert.equal(resolveModel(openaiConfig, ctx), registryModels.get('openai/gpt-4.1-mini'));
+
+  const openrouterConfig = { summarizerModel: { model: 'openrouter/qwen/qwen3-coder:exacto', thinkingLevel: 'off' } };
+  assert.deepEqual(summarizerThinkingOptions(openrouterConfig), { reasoningEffort: undefined });
+  assert.equal(resolveModel(openrouterConfig, ctx), registryModels.get('openrouter/qwen/qwen3-coder:exacto'));
+
+  const opusConfig = { summarizerModel: { model: 'anthropic/claude-opus-4-6', thinkingLevel: 'max' } };
+  assert.deepEqual(summarizerThinkingOptions(opusConfig), { reasoningEffort: 'max' });
+  assert.equal(resolveModel(opusConfig, ctx), registryModels.get('anthropic/claude-opus-4-6'));
+
+  assert.deepEqual(findCalls, [
+    ['openai', 'gpt-4.1-mini'],
+    ['openrouter', 'qwen/qwen3-coder:exacto'],
+    ['anthropic', 'claude-opus-4-6'],
+  ]);
+  assert.equal(notifications.length, 0);
 });
 
 process.on('exit', () => rmSync(temp, { recursive: true, force: true }));

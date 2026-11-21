@@ -36,14 +36,15 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": ">=0.86.0",
+    "@earendil-works/pi-coding-agent": ">=1.5.0",
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.86.0",
-    "@earendil-works/pi-coding-agent": "^0.86.0",
-    "@earendil-works/pi-tui": "^0.86.0",
+    "@earendil-works/pi-ai": "^1.5.2",
+    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-tui": "^1.5.2",
     "@sinclair/typebox": "^0.34.52",
-    "esbuild": "^0.27.2"
+    "esbuild": "^0.27.2",
+    "pi-extension-settings-tui": "^0.4.0"
   }
 }
