@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.0
+
+### Changed
+- Removed dead `src/multi-batch-loader.ts`, pruned unused internal exports, and switched `pi-extension-settings-tui` imports to subpath exports (`/schema`, `/store`, `/adapter`).
+- Disabled published source/declaration maps and excluded unreachable internal `dist/src/*.d.ts` declarations from the npm tarball (keeping `dist/index.d.ts`).
+- Added the missing MIT `LICENSE` file declared in `package.json`.
+
 ## 3.1.0
 
 ### Changed

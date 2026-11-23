@@ -1,8 +1,6 @@
 import type { CapturedBatch } from "./types.js";
 import { formatCharProgress } from "./stats.js";
 
-export type PruneProgressPhase = "running" | "done" | "skipped";
-
 /**
  * Shared formatter for live prune progress, used by /pruner now and the
  * context_prune tool so both paths show the exact same text.
@@ -12,7 +10,7 @@ export function pruneProgressText(
   index: number,
   total: number,
   receivedChars: number,
-  phase: PruneProgressPhase = "running",
+  phase: "running" | "done" | "skipped" = "running",
 ): string {
   const rawChars = batch.toolCalls.reduce((sum, tc) => sum + tc.resultText.length, 0);
   const toolCount = batch.toolCalls.length;

@@ -5,7 +5,7 @@ export interface SummaryToolCallRef {
   toolCallId: string;
 }
 
-export interface SummaryMessageDetailsLike {
+interface SummaryMessageDetailsLike {
   toolCallRefs?: SummaryToolCallRef[];
   toolCallIds?: string[];
 }

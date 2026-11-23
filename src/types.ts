@@ -43,10 +43,9 @@
  *     NOT a hidden side-channel. It makes an explicit LLM call from turn_end.
  */
 
-import {
-  MODEL_THINKING_LEVELS,
-  type ModelSelection,
-  type ModelThinkingLevel,
+import type {
+  ModelSelection,
+  ModelThinkingLevel,
 } from "pi-extension-settings-tui/schema";
 
 export type { ModelSelection, ModelThinkingLevel };
@@ -139,7 +138,7 @@ export type BatchingMode = "turn" | "agent-message";
  * - "parallel" : all pending batches summarized concurrently (default)
  * - "serial"   : one summarizer LLM call at a time, in order (safe for local / single-slot servers)
  */
-export type BatchExecutionMode = "serial" | "parallel";
+type BatchExecutionMode = "serial" | "parallel";
 
 /** Thinking/reasoning level requested for explicit summarizer LLM calls. */
 export type SummarizerThinking = ModelThinkingLevel;
@@ -154,8 +153,6 @@ export const SUMMARIZER_THINKING_LEVELS: { value: SummarizerThinking; label: str
   { value: "xhigh", label: "XHigh" },
   { value: "max", label: "Max" },
 ];
-
-export { MODEL_THINKING_LEVELS };
 
 /** Choices for the batching-mode setting (used by commands and settings overlay) */
 export const BATCHING_MODES: { value: BatchingMode; label: string }[] = [
@@ -299,26 +296,6 @@ export interface IndexEntryData {
   toolCalls: ToolCallRecord[];
 }
 
-/**
- * Short alias used in the summary message text plus the real toolCallId it
- * maps back to for future recovery through context_tree_query.
- */
-export interface SummaryToolCallRef {
-  shortId: string;
-  toolCallId: string;
-}
-
-/**
- * Details stored in the custom summary message's `details` field.
- * Machine-readable metadata so renderers and extensions can inspect summaries.
- */
-export interface SummaryMessageDetails {
-  toolCallRefs: SummaryToolCallRef[];
-  toolNames: string[];
-  turnIndex: number;
-  timestamp: number;
-}
-
 // ── Summarizer stats ────────────────────────────────────────────────────────
 
 /**
@@ -338,7 +315,7 @@ export interface SummarizerStats {
 }
 
 /** Outcome of the most recent completed prune attempt. */
-export type PruneFrontierOutcome = "summarized" | "skipped-oversized";
+type PruneFrontierOutcome = "summarized" | "skipped-oversized";
 
 /**
  * Snapshot of the last successfully completed prune attempt boundary.
@@ -372,7 +349,7 @@ export interface PruneFrontier {
  * Progress callback invoked by `flushPending` / `summarizeBatches` before and after
  * each batch summarizer call. Used by `/pruner now` to drive the multi-row progress widget.
  */
-export type ProgressCallback = (
+type ProgressCallback = (
   index: number,
   total: number,
   batch: CapturedBatch,
@@ -380,7 +357,7 @@ export type ProgressCallback = (
 ) => void;
 
 /** Live text-progress callback for a batch currently being summarized. */
-export type BatchTextProgressCallback = (
+type BatchTextProgressCallback = (
   index: number,
   total: number,
   batch: CapturedBatch,

@@ -1,27 +1,29 @@
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
-  createSettingsStore,
   defineSettings,
   field,
   isValidModelThinkingLevel,
   parseModelIdentity,
-  type LoadedSettings,
   type ModelSelection,
   type SettingsScope,
+} from "pi-extension-settings-tui/schema";
+import {
+  createSettingsStore,
+  type LoadedSettings,
   type SettingsStore,
   type SettingsStoreOptions,
-} from "pi-extension-settings-tui";
+} from "pi-extension-settings-tui/store";
 import type { ContextPruneConfig, PruneOn } from "./types.js";
 import { DEFAULT_CONFIG, PRUNE_ON_MODES } from "./types.js";
 
 /** Relative settings file mirrored across <agentDir>/ and <cwd>/.pi/. */
-export const SETTINGS_FILE = "context-prune/settings.json";
+const SETTINGS_FILE = "context-prune/settings.json";
 
 /** Path to the extension's global settings file. */
 export const SETTINGS_PATH = join(getAgentDir(), "context-prune", "settings.json");
 
-export const PRUNE_MODE_GUIDANCE: Record<PruneOn, string> = {
+const PRUNE_MODE_GUIDANCE: Record<PruneOn, string> = {
   "every-turn":
     "Debugging only. Prunes after every tool turn, which is easiest to inspect but churns provider prompt caches the most.",
   "on-context-tag":
@@ -48,7 +50,7 @@ export function formatSummarizerModel(selection: ModelSelection | null): string 
  *   start spending reasoning tokens on upgrade.
  * - Drops the obsolete `summarizerThinking` key.
  */
-export function migrateLegacySettings(raw: Record<string, unknown>): Record<string, unknown> {
+function migrateLegacySettings(raw: Record<string, unknown>): Record<string, unknown> {
   const hasLegacyStringModel = typeof raw.summarizerModel === "string";
   const hasLegacyThinkingKey = Object.prototype.hasOwnProperty.call(raw, "summarizerThinking");
 
@@ -277,26 +279,22 @@ export const contextPruneSettingsSchema = defineSettings({
   },
 });
 
-export type ContextPruneSettingsStore = SettingsStore<typeof contextPruneSettingsSchema.fields>;
-
 export function createPrunerSettingsStore(
   options?: SettingsStoreOptions,
-): ContextPruneSettingsStore {
+): SettingsStore<typeof contextPruneSettingsSchema.fields> {
   return createSettingsStore(contextPruneSettingsSchema, {
     agentDir: getAgentDir(),
     ...options,
   });
 }
 
-export interface LoadConfigOptions {
-  readonly cwd?: string;
-  readonly trustedProject?: boolean;
-  readonly persistMigration?: boolean;
-}
-
 /** Loads effective config (defaults -> global -> trusted project), optionally persisting in-place v2->v3 migrations. */
 export async function loadConfigWithMeta(
-  options?: LoadConfigOptions,
+  options?: {
+    readonly cwd?: string;
+    readonly trustedProject?: boolean;
+    readonly persistMigration?: boolean;
+  },
 ): Promise<LoadedSettings<ContextPruneConfig>> {
   const store = createPrunerSettingsStore({ cwd: options?.cwd });
   return store.load({
@@ -306,7 +304,13 @@ export async function loadConfigWithMeta(
 }
 
 /** Reads effective config from ~/.pi/agent/context-prune/settings.json (+ trusted project overrides) or defaults on error. */
-export async function loadConfig(options?: LoadConfigOptions): Promise<ContextPruneConfig> {
+export async function loadConfig(
+  options?: {
+    readonly cwd?: string;
+    readonly trustedProject?: boolean;
+    readonly persistMigration?: boolean;
+  },
+): Promise<ContextPruneConfig> {
   try {
     const loaded = await loadConfigWithMeta(options);
     return loaded.effective;
@@ -315,16 +319,14 @@ export async function loadConfig(options?: LoadConfigOptions): Promise<ContextPr
   }
 }
 
-export interface SaveConfigOptions {
-  readonly cwd?: string;
-  readonly scope?: SettingsScope;
-  readonly trustedProject?: boolean;
-}
-
 /** Persists override diffs for the given config to the target scope (defaults to global). */
 export async function saveConfig(
   config: ContextPruneConfig,
-  options?: SaveConfigOptions,
+  options?: {
+    readonly cwd?: string;
+    readonly scope?: SettingsScope;
+    readonly trustedProject?: boolean;
+  },
 ): Promise<void> {
   const store = createPrunerSettingsStore({ cwd: options?.cwd });
   await store.save(config, {
@@ -341,7 +343,11 @@ export async function saveConfig(
  */
 export async function patchConfig(
   partial: Partial<ContextPruneConfig>,
-  options?: SaveConfigOptions,
+  options?: {
+    readonly cwd?: string;
+    readonly scope?: SettingsScope;
+    readonly trustedProject?: boolean;
+  },
 ): Promise<{ config: ContextPruneConfig; scope: SettingsScope }> {
   const trustedProject = options?.trustedProject ?? false;
   const store = createPrunerSettingsStore({ cwd: options?.cwd });

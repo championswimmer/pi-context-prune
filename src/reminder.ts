@@ -53,7 +53,7 @@ export function countUnprunedToolCalls(messages: any[], indexer: ToolCallIndexer
  * Builds the human-readable reminder line. Wrapped in a tag-like sentinel so
  * the model can clearly distinguish it from real tool output.
  */
-export function buildReminderText(count: number): string {
+function buildReminderText(count: number): string {
   return `${PRUNER_NOTE_OPEN}${count} unpruned tool call result(s) currently in context. Consider calling context_prune after a logical batch of 8–12 related tool calls.${PRUNER_NOTE_CLOSE}`;
 }
 

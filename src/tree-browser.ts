@@ -10,7 +10,7 @@ import type { ToolCallIndexer } from "./indexer.js";
 
 // ── Tree node types ─────────────────────────────────────────────────────────
 
-export interface TreeNode {
+interface TreeNode {
   id: string;
   label: string;
   children: TreeNode[];

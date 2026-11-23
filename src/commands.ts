@@ -15,9 +15,9 @@ import {
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
   isValidModelThinkingLevel,
-  openSettingsDialog,
   parseModelIdentity,
-} from "pi-extension-settings-tui";
+} from "pi-extension-settings-tui/schema";
+import { openSettingsDialog } from "pi-extension-settings-tui/adapter";
 import {
   contextPruneSettingsSchema,
   createPrunerSettingsStore,

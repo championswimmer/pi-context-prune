@@ -106,7 +106,7 @@ export class StatsAccumulator {
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
 /** Format compact counts like Pi's status line (e.g. "1.2k", "340") */
-export function formatCompactCount(n: number): string {
+function formatCompactCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
@@ -128,13 +128,4 @@ export function formatCharProgress(receivedChars: number, rawChars?: number): st
 export function formatCost(n: number): string {
   if (n < 0.001 && n > 0) return `<$0.001`;
   return `$${n.toFixed(3)}`;
-}
-
-/**
- * Build the stats suffix for the status widget.
- * Returns something like " │ ↑1.2k ↓340 $0.003" or "" if no calls yet.
- */
-export function statsSuffix(stats: SummarizerStats): string {
-  if (stats.callCount === 0) return "";
-  return ` │ ↑${formatTokens(stats.totalInputTokens)} ↓${formatTokens(stats.totalOutputTokens)} ${formatCost(stats.totalCost)}`;
 }

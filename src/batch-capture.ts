@@ -166,20 +166,6 @@ export function serializeBatchForSummarizer(batch: CapturedBatch): string {
 }
 
 /**
- * Serializes multiple CapturedBatches into a single readable text block for the summarizer LLM.
- * Each batch is rendered as a separate "Turn" section with a header indicating the turn index.
- */
-export function serializeBatchesForSummarizer(batches: CapturedBatch[]): string {
-  return batches
-    .map((batch, i) => {
-      const header = `=== Turn ${batch.turnIndex}${i > 0 ? ` (batch ${i + 1})` : ""} ===`;
-      const body = serializeBatchForSummarizer(batch);
-      return `${header}\n${body}`;
-    })
-    .join("\n\n");
-}
-
-/**
  * Groups CapturedBatches according to the chosen batching mode.
  *
  * - "turn"          : returns the input array unchanged (one summary per assistant turn).
