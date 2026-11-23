@@ -1,6 +1,6 @@
 {
   "name": "pi-context-prune",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Pi extension package for pruning future context while preserving original tool-call history.",
   "type": "module",
   "main": "./dist/index.js",
