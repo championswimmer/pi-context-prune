@@ -350,7 +350,8 @@ export async function patchConfig(
   if (!options?.scope && trustedProject) {
     const current = await store.load({ trustedProject: true });
     const hasProjectOverride = Object.keys(partial).some((key) => {
-      const prov = current.provenance[key as keyof ContextPruneConfig & string];
+      if (!Object.hasOwn(current.provenance, key)) return false;
+      const prov = current.provenance[key as keyof typeof current.provenance];
       return prov === "project" || prov === "both";
     });
     if (hasProjectOverride) {

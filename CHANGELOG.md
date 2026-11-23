@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.0
+
+### Changed
+- Switched packaging from an `esbuild` single-file bundle to compiled ESM JavaScript and TypeScript declarations (`.js` + `.d.ts` + source/declaration maps) emitted by `tsc` into `dist/`.
+- Added `types` and conditional `exports` in `package.json`, moved `pi-extension-settings-tui` to runtime `dependencies`, and declared `typebox` in `peerDependencies`.
+- Updated `scripts/test-usage.mjs`, `scripts/test-status.mjs`, and `scripts/check-package.mjs` to verify and run against the compiled `dist/` output without `esbuild`.
+
 ## 3.0.0
 
 ### Breaking Changes

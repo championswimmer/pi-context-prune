@@ -51,28 +51,11 @@ Once installed, the extension is auto-loaded every time you run `pi`. No flags n
 
 To **upgrade to a newer release**, simply re-run the install command — Pi will pull the latest version from npm.
 
-### Install from GitHub (cutting-edge / main branch)
-
-If you want the latest unreleased changes from `main`, install directly from the git repository:
-
-```bash
-# Install globally (all projects)
-pi install git:github.com/championswimmer/pi-context-prune
-
-# Or install for the current project only
-pi install -l git:github.com/championswimmer/pi-context-prune
-```
-
-> **Note:** The `main` branch may contain unreleased or experimental changes. Prefer the npm install for day-to-day use.
-
 ### Try without installing
 
 ```bash
 # Load for this session only (no install)
 pi -e npm:pi-context-prune
-
-# Or try the latest from git without installing
-pi -e git:github.com/championswimmer/pi-context-prune
 ```
 
 ### From source (development)
@@ -80,6 +63,8 @@ pi -e git:github.com/championswimmer/pi-context-prune
 ```bash
 git clone https://github.com/championswimmer/pi-context-prune
 cd pi-context-prune
+npm install
+npm run build
 pi -e .
 ```
 

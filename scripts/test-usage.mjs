@@ -1,26 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { build } from 'esbuild';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
-
-const temp = mkdtempSync(join(process.cwd(), 'node_modules', '.pruner-usage-'));
-const piAiShim = join(temp, 'pi-ai-shim.mjs');
-writeFileSync(piAiShim, "export const normalizeContext = value => value;\n");
-await build({
-  entryPoints: ['src/usage-report.ts', 'src/summarizer.ts'],
-  outdir: temp,
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  alias: { '@earendil-works/pi-ai': piAiShim },
-  external: ['@earendil-works/pi-coding-agent'],
-  outExtension: { '.js': '.mjs' },
-});
-const report = await import(pathToFileURL(join(temp, 'usage-report.mjs')));
-const { summarizeBatch, summarizeBatches, summarizerThinkingOptions, resolveModel } = await import(pathToFileURL(join(temp, 'summarizer.mjs')));
+import * as report from '../dist/src/usage-report.js';
+import {
+  summarizeBatch,
+  summarizeBatches,
+  summarizerThinkingOptions,
+  resolveModel,
+} from '../dist/src/summarizer.js';
 const usage = { input: 12, output: 4, cacheRead: 2, cacheWrite: 0, totalTokens: 18,
   cost: { input: .1, output: .2, cacheRead: .03, cacheWrite: 0, total: .33 } };
 const batch = (id = 'a') => ({ turnIndex: 3, timestamp: 0, assistantText: '', toolCalls: [{ toolCallId: id, toolName: 'bash', args: {}, resultText: 'x', isError: false }] });
@@ -234,5 +221,3 @@ test('summarizerThinkingOptions and resolveModel handle null and explicit model 
   ]);
   assert.equal(notifications.length, 0);
 });
-
-process.on('exit', () => rmSync(temp, { recursive: true, force: true }));

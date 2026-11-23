@@ -25,7 +25,8 @@ This repository is for a Pi coding-agent extension that prunes tool-call trees b
 ```
 pi-context-prune/
 ├── index.ts                       # TypeScript extension source entry point — wires all modules together
-├── dist/index.js                  # Generated ESM bundle shipped as the Pi extension (gitignored)
+├── dist/                          # Generated ESM + .d.ts output built with tsc (gitignored)
+├── tsconfig.json                  # TypeScript build configuration (rootDir: ".", outDir: "dist")
 ├── package.json                   # Pi package manifest; declares extension at ./dist/index.js
 └── src/
     ├── types.ts                   # Shared types, constants, and interfaces (including PruneOn modes)

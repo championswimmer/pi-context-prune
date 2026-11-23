@@ -2,8 +2,6 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { build } from 'esbuild';
 
 // Keep settings tests isolated from the user's real Pi configuration.
 const temp = mkdtempSync(join(process.cwd(), 'node_modules', '.pruner-status-'));
@@ -14,15 +12,9 @@ after(() => {
   else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
   rmSync(temp, { recursive: true, force: true });
 });
-await build({
-  entryPoints: ['src/commands.ts', 'src/config.ts', 'src/types.ts'],
-  outdir: temp, bundle: true, platform: 'node', format: 'esm',
-  external: ['@earendil-works/pi-ai', '@earendil-works/pi-coding-agent', '@earendil-works/pi-tui'],
-  outExtension: { '.js': '.mjs' },
-});
-const { pruneStatusText, setPruneStatusWidget, pendingTurnsText } = await import(pathToFileURL(join(temp, 'commands.mjs')));
-const { DEFAULT_CONFIG, STATUS_WIDGET_ID } = await import(pathToFileURL(join(temp, 'types.mjs')));
-const { SETTINGS_PATH, loadConfig, loadConfigWithMeta, saveConfig, patchConfig } = await import(pathToFileURL(join(temp, 'config.mjs')));
+const { pruneStatusText, setPruneStatusWidget, pendingTurnsText } = await import('../dist/src/commands.js');
+const { DEFAULT_CONFIG, STATUS_WIDGET_ID } = await import('../dist/src/types.js');
+const { SETTINGS_PATH, loadConfig, loadConfigWithMeta, saveConfig, patchConfig } = await import('../dist/src/config.js');
 const stats = { totalInputTokens: 1200, totalOutputTokens: 340, totalCost: .003, callCount: 1 };
 const config = { ...DEFAULT_CONFIG, enabled: true, pruneOn: 'every-turn' };
 

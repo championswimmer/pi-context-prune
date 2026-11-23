@@ -7,7 +7,7 @@
  * Activation/deactivation is handled in index.ts via ctx.setActiveTools().
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CapturedBatch, FlushOptions } from "./types.js";
 import { CONTEXT_PRUNE_TOOL_NAME } from "./types.js";
