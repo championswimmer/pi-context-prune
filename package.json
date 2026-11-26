@@ -44,7 +44,8 @@
   "pi": {
     "extensions": [
       "./dist/index.js"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/championswimmer/pi-context-prune/main/assets/banner.png"
   },
   "dependencies": {
     "pi-extension-settings-tui": "^0.4.0"

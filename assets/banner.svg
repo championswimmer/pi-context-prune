@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34D399"/><stop offset="1" stop-color="#0E7A4B"/></linearGradient>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0B1713"/><stop offset="1" stop-color="#050A08"/></linearGradient>
+<radialGradient id="glow" cx="0.2" cy="0.5" r="0.6"><stop offset="0" stop-color="#34D399" stop-opacity="0.22"/><stop offset="1" stop-color="#34D399" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="630" fill="url(#bg)"/>
+<rect width="1200" height="630" fill="url(#glow)"/>
+<g transform="translate(110 115)"><svg width="400" height="400" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="url(#g)"/>
+<g transform="translate(256 262) rotate(40) translate(0 -8)">
+  <g fill="#F4FFF8">
+    <path d="M-22 16 L16 -14 L40 -186 Q42 -198 30 -190 Z" transform="scale(1)"/>
+    <path d="M22 16 L-16 -14 L-40 -186 Q-42 -198 -30 -190 Z"/>
+  </g>
+  <g fill="none" stroke="#F4FFF8" stroke-width="26" stroke-linecap="round">
+    <path d="M-6 6 L-46 74"/><circle cx="-56" cy="118" r="44"/>
+    <path d="M6 6 L46 74"/><circle cx="56" cy="118" r="44"/>
+  </g>
+  <circle cx="0" cy="0" r="15" fill="#0E7A4B"/>
+</g></svg></g>
+<text x="570" y="316" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="64" fill="#F4FFF8">pi-context-prune</text>
+<rect x="574" y="348" width="72" height="6" rx="3" fill="#34D399"/>
+<text x="572" y="406" font-family="Inter, Helvetica, Arial, sans-serif" font-size="34" fill="#A7C4B8">Trim tool output. Keep the history.</text>
+</svg>
