@@ -1,37 +1,15 @@
-# <img src="https://raw.githubusercontent.com/championswimmer/pi-context-prune/main/assets/icon.png" width="44" height="44" align="absmiddle" alt=""> pi-context-prune
+![pi-context-prune](https://raw.githubusercontent.com/championswimmer/pi-context-prune/main/assets/banner.png)
 
 [![npm version](https://img.shields.io/npm/v/pi-context-prune?style=flat-square)](https://www.npmjs.com/package/pi-context-prune)
 [![npm downloads](https://img.shields.io/npm/dm/pi-context-prune?style=flat-square)](https://www.npmjs.com/package/pi-context-prune)
 
 A [Pi coding-agent](https://github.com/badlogic/pi-mono) extension that **summarizes completed tool-call batches**, prunes raw tool outputs from future LLM context, and exposes a `context_tree_query` escape hatch to recover any original output on demand.
 
-## Check out my other Pi extensions
+## Install
 
-- [![pi-cache-graph](https://img.shields.io/badge/📊_pi--cache--graph-orange?style=flat-square)](https://github.com/championswimmer/pi-cache-graph) — Real-time prompt cache hit rates and token metrics.
-- [![pi-checklist](https://img.shields.io/badge/✅_pi--checklist-teal?style=flat-square)](https://github.com/championswimmer/pi-checklist) — Session task checklist with dependencies and a TUI renderer.
-- [![pi-context-decisions](https://img.shields.io/badge/🧠_pi--context--decisions-indigo?style=flat-square)](https://github.com/championswimmer/pi-context-decisions) — Selects relevant skills and optionally filters tools for each task.
-- [![pi-context-prune](https://img.shields.io/badge/✂️_pi--context--prune-green?style=flat-square)](https://github.com/championswimmer/pi-context-prune) — Prunes verbose tool outputs from context while preserving history.
-- [![pi-context-usage](https://img.shields.io/badge/🪟_pi--context--usage-purple?style=flat-square)](https://github.com/championswimmer/pi-context-usage) — Dot-grid visualization of context window token usage.
-- [![pi-gauge](https://img.shields.io/badge/⚡_pi--gauge-yellow?style=flat-square)](https://github.com/championswimmer/pi-gauge) — Live tokens/sec and TTFT in the status bar.
-- [![pi-subagent-manager](https://img.shields.io/badge/🤖_pi--subagent--manager-blue?style=flat-square)](https://github.com/championswimmer/pi-subagent-manager) — Delegate work to parallel subagents and monitor their progress.
-
----
-
-## Why
-
-> 📖 For a deep dive into how pruning works, how prefix caching interacts with it, and the research behind summarization-based context management, see [**PRUNING.md**](PRUNING.md).
-
-As long agent sessions grow, every tool call adds token-heavy output to the context window. Most of it is not needed verbatim after the first use. This extension:
-
-1. **Captures** completed tool-result batches from `turn_end`, and re-scans the current session branch when a flush runs so unsummarized results can still be picked up
-2. **Summarizes** those batches using your configured model when the selected trigger fires
-3. **Stores** a compact hidden summary message either as a runtime steer or a session custom message, depending on the flush path
-4. **Prunes** the original verbose tool outputs from future context (`context` event)
-5. **Preserves** every original output in a session-backed index — retrievable at any time via `context_tree_query`
-
-The extension does append its own custom summary/index/frontier/stats entries to the session, but it does **not** rewrite or delete the original tool-result messages. Pruning only changes how future request context is assembled.
-
-## Installation
+```bash
+pi install npm:pi-context-prune
+```
 
 Requires Pi `@earendil-works/pi-coding-agent` **1.5.0 or later**.
 
@@ -75,46 +53,31 @@ pi list           # show installed packages
 pi remove pi-context-prune
 ```
 
-## Prune-On Modes
+## Why use it
 
-The extension supports five trigger modes controlling **when** summarization and pruning happen.
+- Long sessions stay lean: verbose tool outputs are replaced by compact summaries in future LLM context.
+- Nothing is lost: every original output stays in a session-backed index and is retrievable with `context_tree_query`.
+- Pick when pruning happens with five trigger modes, from every turn to fully manual, with a cache-friendly default batching mode.
+- Use a cheap, fast summarizer model separate from your coding model.
+- Original tool-result messages in the session are never rewritten or deleted.
 
-### Cache-aware guidance
+### How it works
 
-This extension rewrites the **future request context** by replacing old raw `toolResult` messages with a compact summary. That saves tokens, but it also changes the prompt prefix seen by the model.
+> 📖 For a deep dive into how pruning works, how prefix caching interacts with it, and the research behind summarization-based context management, see [**PRUNING.md**](PRUNING.md).
 
-On providers with **prefix / prompt caching** (for example Anthropic-style prompt caching), cache hits require the earlier prompt prefix to stay identical. If you keep changing earlier context, the provider has to recompute from the point of change onward, which means **higher latency, higher input cost, and fewer cache hits**. In other words: pruning too often can save tokens in-context while still hurting overall performance by repeatedly busting the provider cache.
+As long agent sessions grow, every tool call adds token-heavy output to the context window. Most of it is not needed verbatim after the first use. This extension:
 
-That is why **`agent-message` remains the safest batching default**: it batches a whole stretch of tool work, prunes **once** when the agent is done and sends a final text reply, and then leaves the new shorter context stable again. You usually pay one cache bust per meaningful work batch instead of one cache bust per tool turn.
+1. **Captures** completed tool-result batches from `turn_end`, and re-scans the current session branch when a flush runs so unsummarized results can still be picked up
+2. **Summarizes** those batches using your configured model when the selected trigger fires
+3. **Stores** a compact hidden summary message either as a runtime steer or a session custom message, depending on the flush path
+4. **Prunes** the original verbose tool outputs from future context (`context` event)
+5. **Preserves** every original output in a session-backed index — retrievable at any time via `context_tree_query`
 
-References:
-- Anthropic prompt caching docs: <https://docs.claude.com/en/docs/build-with-claude/prompt-caching>
-- AWS Bedrock prompt caching overview: <https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html>
-- `pi-context` extension (`context_checkpoint`, `context_timeline`, `context_compact`; legacy names `context_tag`, `context_log`, `context_checkout`): <https://github.com/ttttmr/pi-context>
+The extension does append its own custom summary/index/frontier/stats entries to the session, but it does **not** rewrite or delete the original tool-result messages. Pruning only changes how future request context is assembled.
 
-### Mode trade-offs
+## How to use
 
-| Mode | Trigger | Pros | Cons / cache impact | Recommendation |
-|---|---|---|---|---|
-| `every-turn` | Immediately after each tool-calling turn | Smallest raw context as fast as possible; easiest to reason about | **Busts prompt cache the most often** because earlier context is rewritten after almost every tool turn; adds summarizer latency every turn; can cost more overall despite saving context tokens | **Debugging only.** Useful to test the extension, inspect summaries, or study behavior — not recommended for normal day-to-day use |
-| `on-context-tag` | When `context_checkpoint` is called | Lets you align pruning with explicit milestones / save-points; fewer cache busts than `every-turn` if you tag sparingly | Only auto-triggers if you have the [`pi-context`](https://github.com/ttttmr/pi-context) extension installed, because that extension provides the `context_checkpoint` tool (legacy name `context_tag` is still recognized); if you tag too often, you still churn cache; if you forget to tag, pending batches keep growing | Good if you already use `pi-context` and think in checkpoints / milestones |
-| `on-demand` | Only when you run `/pruner now` | Maximum manual control; easiest mode for preserving cache because nothing changes until you decide; good for long investigations where you want to delay pruning | Easy to forget; pending batches can grow large; you must manage timing yourself | Good for advanced users who want explicit control over when the cache is intentionally invalidated |
-| `agent-message` | When the agent sends a final text-only response | Best balance of automation, context savings, and cache friendliness; batches many tool turns into one prune; after the prune, future requests become highly cacheable again until the next batch finishes | You do not reclaim space mid-batch; if a run goes extremely long before the final reply, context can grow more than in aggressive modes | Safest general-purpose mode when you want deterministic pruning only after the final reply |
-| `agentic-auto` | The model decides by calling `context_prune` | Lets the agent compact context before it gets too large; can work well for long autonomous runs when the model is disciplined | Depends on model judgment; if the model calls `context_prune` too often, it can churn cache similarly to `every-turn`; behavior is less predictable than `agent-message` | **Default trigger.** Good for longer autonomous sessions after prompt-tuning and observation |
-
-### How each mode works
-
-**`every-turn`** — Every tool-calling turn is summarized and pruned immediately. This is intentionally aggressive. It is useful for debugging the extension or validating summaries, but in real work it usually rewrites the prompt prefix too frequently and hurts provider-side prompt caching.
-
-**`on-context-tag`** — Tool-call turns are queued until `context_checkpoint` is called, then all pending batches are summarized in one LLM call and pruned together. This mode is meant to pair with the [`pi-context`](https://github.com/ttttmr/pi-context) extension; without that extension, `context_checkpoint` is not available, so this mode will not auto-trigger unless you switch modes or flush manually with `/pruner now`. The legacy tool name `context_tag` from older `pi-context` versions is still recognized.
-
-**`on-demand`** — Tool-call turns are batched but never summarized automatically. You decide when to flush with `/pruner now`. This is the most manual mode and also the easiest to keep cache-friendly, because you can wait until a large chunk of work is complete before changing earlier context.
-
-**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). Use this trigger when you want pruning to wait until the final text reply instead of letting the model choose a prune point.
-
-**`agentic-auto`** — The `context_prune` tool is activated and exposed to the LLM. The system prompt tells the model to use it only after a meaningful batch of related tool calls, not after every small step. Used well, this gives the agent flexibility; used badly, it can over-prune and reduce cache effectiveness.
-
-## Commands
+### Commands
 
 The extension registers the `/pruner` command:
 
@@ -161,9 +124,9 @@ The extension registers the `/pruner` command:
 
 The dialog also supports **Global** + trusted **Project** scope switching, provenance indicators showing where each effective value comes from, and **Restore defaults** for the active scope. All changes are saved immediately (override-only JSON persistence) and reflected in the footer status widget and active tool list.
 
-## Tools
+### Tools
 
-### `context_tree_query`
+#### `context_tree_query`
 
 When pruning is on, the LLM sees compact summary messages instead of raw tool outputs. Each summary ends with short aliases such as:
 
@@ -174,7 +137,7 @@ Use `context_tree_query` with these refs to retrieve the original full outputs.
 
 Those short refs are generated by the extension and mapped back to the real `toolCallId`s in the summary message metadata. The LLM only sees the short refs in future context; the full IDs stay in the stored details used by `context_tree_query` and internal tree/browser recovery. The tool is always available when the extension is loaded.
 
-### `context_prune` (agentic-auto mode only)
+#### `context_prune` (agentic-auto mode only)
 
 When `pruneOn` is set to `agentic-auto`, the `context_prune` tool is activated and made available to the LLM. It is removed from the active tool list in all other modes.
 
@@ -185,6 +148,45 @@ When the model calls `context_prune`:
 - If the summary is larger than the raw tool-result text, pruning is skipped for that attempted range: the original tool results remain in context, but the prune frontier still advances so the next prune attempt starts after that range instead of retrying it forever
 
 The tool is guided by a system prompt that instructs the model to use it after completing a meaningful batch of work (not after every trivial call).
+
+## Prune-On Modes
+
+The extension supports five trigger modes controlling **when** summarization and pruning happen.
+
+### Cache-aware guidance
+
+This extension rewrites the **future request context** by replacing old raw `toolResult` messages with a compact summary. That saves tokens, but it also changes the prompt prefix seen by the model.
+
+On providers with **prefix / prompt caching** (for example Anthropic-style prompt caching), cache hits require the earlier prompt prefix to stay identical. If you keep changing earlier context, the provider has to recompute from the point of change onward, which means **higher latency, higher input cost, and fewer cache hits**. In other words: pruning too often can save tokens in-context while still hurting overall performance by repeatedly busting the provider cache.
+
+That is why **`agent-message` remains the safest batching default**: it batches a whole stretch of tool work, prunes **once** when the agent is done and sends a final text reply, and then leaves the new shorter context stable again. You usually pay one cache bust per meaningful work batch instead of one cache bust per tool turn.
+
+References:
+- Anthropic prompt caching docs: <https://docs.claude.com/en/docs/build-with-claude/prompt-caching>
+- AWS Bedrock prompt caching overview: <https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html>
+- `pi-context` extension (`context_checkpoint`, `context_timeline`, `context_compact`; legacy names `context_tag`, `context_log`, `context_checkout`): <https://github.com/ttttmr/pi-context>
+
+### Mode trade-offs
+
+| Mode | Trigger | Pros | Cons / cache impact | Recommendation |
+|---|---|---|---|---|
+| `every-turn` | Immediately after each tool-calling turn | Smallest raw context as fast as possible; easiest to reason about | **Busts prompt cache the most often** because earlier context is rewritten after almost every tool turn; adds summarizer latency every turn; can cost more overall despite saving context tokens | **Debugging only.** Useful to test the extension, inspect summaries, or study behavior — not recommended for normal day-to-day use |
+| `on-context-tag` | When `context_checkpoint` is called | Lets you align pruning with explicit milestones / save-points; fewer cache busts than `every-turn` if you tag sparingly | Only auto-triggers if you have the [`pi-context`](https://github.com/ttttmr/pi-context) extension installed, because that extension provides the `context_checkpoint` tool (legacy name `context_tag` is still recognized); if you tag too often, you still churn cache; if you forget to tag, pending batches keep growing | Good if you already use `pi-context` and think in checkpoints / milestones |
+| `on-demand` | Only when you run `/pruner now` | Maximum manual control; easiest mode for preserving cache because nothing changes until you decide; good for long investigations where you want to delay pruning | Easy to forget; pending batches can grow large; you must manage timing yourself | Good for advanced users who want explicit control over when the cache is intentionally invalidated |
+| `agent-message` | When the agent sends a final text-only response | Best balance of automation, context savings, and cache friendliness; batches many tool turns into one prune; after the prune, future requests become highly cacheable again until the next batch finishes | You do not reclaim space mid-batch; if a run goes extremely long before the final reply, context can grow more than in aggressive modes | Safest general-purpose mode when you want deterministic pruning only after the final reply |
+| `agentic-auto` | The model decides by calling `context_prune` | Lets the agent compact context before it gets too large; can work well for long autonomous runs when the model is disciplined | Depends on model judgment; if the model calls `context_prune` too often, it can churn cache similarly to `every-turn`; behavior is less predictable than `agent-message` | **Default trigger.** Good for longer autonomous sessions after prompt-tuning and observation |
+
+### How each mode works
+
+**`every-turn`** — Every tool-calling turn is summarized and pruned immediately. This is intentionally aggressive. It is useful for debugging the extension or validating summaries, but in real work it usually rewrites the prompt prefix too frequently and hurts provider-side prompt caching.
+
+**`on-context-tag`** — Tool-call turns are queued until `context_checkpoint` is called, then all pending batches are summarized in one LLM call and pruned together. This mode is meant to pair with the [`pi-context`](https://github.com/ttttmr/pi-context) extension; without that extension, `context_checkpoint` is not available, so this mode will not auto-trigger unless you switch modes or flush manually with `/pruner now`. The legacy tool name `context_tag` from older `pi-context` versions is still recognized.
+
+**`on-demand`** — Tool-call turns are batched but never summarized automatically. You decide when to flush with `/pruner now`. This is the most manual mode and also the easiest to keep cache-friendly, because you can wait until a large chunk of work is complete before changing earlier context.
+
+**`agent-message`** — Tool-call turns are batched. When the agent finally replies with a normal text answer (a turn with no tool calls), all pending batches are summarized and pruned together from `message_end`. If the session ends before that happens, the extension does **not** start a last-second summarizer call from `agent_end`; it simply leaves the batches pending so you can flush them later (for example with `/pruner now`). Use this trigger when you want pruning to wait until the final text reply instead of letting the model choose a prune point.
+
+**`agentic-auto`** — The `context_prune` tool is activated and exposed to the LLM. The system prompt tells the model to use it only after a meaningful batch of related tool calls, not after every small step. Used well, this gives the agent flexibility; used badly, it can over-prune and reduce cache effectiveness.
 
 ## Configuration
 
@@ -385,3 +387,13 @@ The extension registers a status widget in the Pi footer that shows the current 
 - Batch multiple turn summaries into a single meta-summary at compaction time
 - ~~`/pruner original-tree`~~ ✅ `/pruner tree` foldable tree browser — done
 - Configurable pruning policy (prune only large tool results, prune by token count threshold)
+
+## Check out my other Pi extensions
+
+- [![pi-cache-graph](https://img.shields.io/badge/📊_pi--cache--graph-orange?style=flat-square)](https://github.com/championswimmer/pi-cache-graph) — Real-time prompt cache hit rates and token metrics.
+- [![pi-checklist](https://img.shields.io/badge/✅_pi--checklist-teal?style=flat-square)](https://github.com/championswimmer/pi-checklist) — Session task checklist with dependencies and a TUI renderer.
+- [![pi-context-decisions](https://img.shields.io/badge/🧠_pi--context--decisions-indigo?style=flat-square)](https://github.com/championswimmer/pi-context-decisions) — Selects relevant skills and optionally filters tools for each task.
+- [![pi-context-prune](https://img.shields.io/badge/✂️_pi--context--prune-green?style=flat-square)](https://github.com/championswimmer/pi-context-prune) — Prunes verbose tool outputs from context while preserving history.
+- [![pi-context-usage](https://img.shields.io/badge/🪟_pi--context--usage-purple?style=flat-square)](https://github.com/championswimmer/pi-context-usage) — Dot-grid visualization of context window token usage.
+- [![pi-gauge](https://img.shields.io/badge/⚡_pi--gauge-yellow?style=flat-square)](https://github.com/championswimmer/pi-gauge) — Live tokens/sec and TTFT in the status bar.
+- [![pi-subagent-manager](https://img.shields.io/badge/🤖_pi--subagent--manager-blue?style=flat-square)](https://github.com/championswimmer/pi-subagent-manager) — Delegate work to parallel subagents and monitor their progress.
