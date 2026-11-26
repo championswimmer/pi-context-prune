@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+<defs>
+<radialGradient id="g" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#F09082" stop-opacity="0.18"/><stop offset="1" stop-color="#F09082" stop-opacity="0"/></radialGradient>
+<radialGradient id="v" cx="50%" cy="50%" r="75%"><stop offset="0.6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.45"/></radialGradient>
+</defs>
+<rect width="1080" height="1920" fill="#0d1116"/>
+<g stroke="#fff" stroke-opacity="0.035" stroke-width="1"><path d="M0 0V1920"/><path d="M40 0V1920"/><path d="M80 0V1920"/><path d="M120 0V1920"/><path d="M160 0V1920"/><path d="M200 0V1920"/><path d="M240 0V1920"/><path d="M280 0V1920"/><path d="M320 0V1920"/><path d="M360 0V1920"/><path d="M400 0V1920"/><path d="M440 0V1920"/><path d="M480 0V1920"/><path d="M520 0V1920"/><path d="M560 0V1920"/><path d="M600 0V1920"/><path d="M640 0V1920"/><path d="M680 0V1920"/><path d="M720 0V1920"/><path d="M760 0V1920"/><path d="M800 0V1920"/><path d="M840 0V1920"/><path d="M880 0V1920"/><path d="M920 0V1920"/><path d="M960 0V1920"/><path d="M1000 0V1920"/><path d="M1040 0V1920"/><path d="M1080 0V1920"/><path d="M0 0H1080"/><path d="M0 40H1080"/><path d="M0 80H1080"/><path d="M0 120H1080"/><path d="M0 160H1080"/><path d="M0 200H1080"/><path d="M0 240H1080"/><path d="M0 280H1080"/><path d="M0 320H1080"/><path d="M0 360H1080"/><path d="M0 400H1080"/><path d="M0 440H1080"/><path d="M0 480H1080"/><path d="M0 520H1080"/><path d="M0 560H1080"/><path d="M0 600H1080"/><path d="M0 640H1080"/><path d="M0 680H1080"/><path d="M0 720H1080"/><path d="M0 760H1080"/><path d="M0 800H1080"/><path d="M0 840H1080"/><path d="M0 880H1080"/><path d="M0 920H1080"/><path d="M0 960H1080"/><path d="M0 1000H1080"/><path d="M0 1040H1080"/><path d="M0 1080H1080"/><path d="M0 1120H1080"/><path d="M0 1160H1080"/><path d="M0 1200H1080"/><path d="M0 1240H1080"/><path d="M0 1280H1080"/><path d="M0 1320H1080"/><path d="M0 1360H1080"/><path d="M0 1400H1080"/><path d="M0 1440H1080"/><path d="M0 1480H1080"/><path d="M0 1520H1080"/><path d="M0 1560H1080"/><path d="M0 1600H1080"/><path d="M0 1640H1080"/><path d="M0 1680H1080"/><path d="M0 1720H1080"/><path d="M0 1760H1080"/><path d="M0 1800H1080"/><path d="M0 1840H1080"/><path d="M0 1880H1080"/><path d="M0 1920H1080"/></g>
+<circle cx="540" cy="1760" r="480" fill="url(#g)" fill-opacity="0.6"/>
+<rect width="1080" height="1920" fill="url(#v)"/>
+<rect x="72" y="150" width="14" height="14" fill="#F09082"/>
+<text x="98" y="164" font-family="Departure Mono, 'DejaVu Sans Mono', monospace" font-size="26" fill="#757d89">pi extension</text>
+<g stroke="#757d89" stroke-width="2" fill="none"><path d="M968 150H1008V190"/></g>
+<circle cx="540" cy="520" r="500" fill="url(#g)"/>
+<rect x="340" y="320" width="440" height="440" rx="76" fill="#212730" stroke="#495059" stroke-width="2"/>
+<g transform="translate(320 300) scale(0.859375)">
+<defs><clipPath id="ct"><rect width="512" height="512" rx="88"/></clipPath></defs>
+<rect width="512" height="512" rx="88" fill="#161d27"/>
+<g clip-path="url(#ct)" stroke="#ffffff" stroke-opacity="0.045" stroke-width="1"><path d="M32 0V512M0 32H512"/><path d="M64 0V512M0 64H512"/><path d="M96 0V512M0 96H512"/><path d="M128 0V512M0 128H512"/><path d="M160 0V512M0 160H512"/><path d="M192 0V512M0 192H512"/><path d="M224 0V512M0 224H512"/><path d="M256 0V512M0 256H512"/><path d="M288 0V512M0 288H512"/><path d="M320 0V512M0 320H512"/><path d="M352 0V512M0 352H512"/><path d="M384 0V512M0 384H512"/><path d="M416 0V512M0 416H512"/><path d="M448 0V512M0 448H512"/><path d="M480 0V512M0 480H512"/></g>
+<rect x="6" y="6" width="500" height="500" rx="82" fill="none" stroke="#495059" stroke-width="2"/>
+<g stroke="#757d89" stroke-width="2" fill="none"><path d="M28 48V28H48M464 28H484V48M28 464V484H48M484 464V484H464"/></g>
+<g shape-rendering="crispEdges">
+<rect x="88" y="88" width="336" height="24" fill="#F09082"/>
+<rect x="88" y="136" width="336" height="24" fill="#F09082"/>
+<rect x="88" y="352" width="336" height="24" fill="#F09082"/>
+<rect x="88" y="400" width="336" height="24" fill="#F09082"/>
+<rect x="88" y="184" width="72" height="24" fill="#ebe7e4"/>
+<rect x="136" y="208" width="72" height="24" fill="#ebe7e4"/>
+<rect x="184" y="232" width="72" height="24" fill="#ebe7e4"/>
+<rect x="232" y="256" width="72" height="24" fill="#ebe7e4"/>
+<rect x="280" y="280" width="72" height="24" fill="#ebe7e4"/>
+<rect x="328" y="232" width="96" height="96" fill="#a3a473"/>
+</g>
+</g>
+<g stroke="#F09082" stroke-width="2.5" fill="none"><path d="M296 316V288H324M796 288H824V316M296 756V784H324M796 784H824V756"/></g>
+<text x="106" y="905" font-family="Departure Mono, 'DejaVu Sans Mono', monospace" font-size="80" fill="#ebe7e4">pi-context-prune</text>
+<rect x="936" y="848" width="38" height="66" fill="#F09082"/>
+<text x="540" y="974" text-anchor="middle" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="34" fill="#9fa4ab">Prune old tool output, keep the summary.</text>
+<rect x="72" y="1010" width="936" height="520" rx="10" fill="#161d27" stroke="#495059" stroke-width="1.5"/>
+<path d="M72 1020a10 10 0 0 1 10-10H998a10 10 0 0 1 10 10V1052H72Z" fill="#212730"/>
+<path d="M72 1052H1008" stroke="#495059" stroke-width="1.5"/>
+<circle cx="98" cy="1031" r="6" fill="#495059"/><circle cx="122" cy="1031" r="6" fill="#495059"/><circle cx="146" cy="1031" r="6" fill="#F09082"/>
+<text x="180" y="1039" font-family="Departure Mono, 'DejaVu Sans Mono', monospace" font-size="24" fill="#9fa4ab">context</text>
+<rect x="96" y="1076" width="280" height="92" rx="6" fill="#252f3d" stroke="#495059" stroke-width="1.5"/><text x="114" y="1112" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="26" fill="#d5d8db">read</text><rect x="114" y="1128" width="190" height="7" fill="#757d89"/><rect x="114" y="1140" width="140" height="7" fill="#495059"/><rect x="114" y="1152" width="170" height="7" fill="#495059"/>
+<rect x="400" y="1076" width="280" height="92" rx="6" fill="#252f3d" stroke="#495059" stroke-width="1.5"/><text x="418" y="1112" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="26" fill="#d5d8db">bash</text><rect x="418" y="1128" width="190" height="7" fill="#757d89"/><rect x="418" y="1140" width="140" height="7" fill="#495059"/><rect x="418" y="1152" width="170" height="7" fill="#495059"/>
+<rect x="704" y="1076" width="280" height="92" rx="6" fill="#252f3d" stroke="#495059" stroke-width="1.5"/><text x="722" y="1112" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="26" fill="#d5d8db">grep</text><rect x="722" y="1128" width="190" height="7" fill="#757d89"/><rect x="722" y="1140" width="140" height="7" fill="#495059"/><rect x="722" y="1152" width="170" height="7" fill="#495059"/>
+<path d="M540 1186V1232M522 1218L540 1236L558 1218" stroke="#F09082" stroke-width="5" fill="none"/>
+<rect x="96" y="1252" width="888" height="110" rx="6" fill="#252f3d" stroke="#a3a473" stroke-width="2"/>
+<rect x="96" y="1252" width="7" height="110" fill="#a3a473"/>
+<text x="124" y="1295" font-family="Departure Mono, 'DejaVu Sans Mono', monospace" font-size="26" fill="#a3a473">summary</text>
+<text x="124" y="1337" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="28" fill="#d5d8db">3 calls, raw output pruned</text>
+<rect x="96" y="1382" width="888" height="124" rx="6" fill="none" stroke="#F09082" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="124" y="1430" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="28" fill="#9fa4ab">originals kept, recover via</text>
+<text x="124" y="1476" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="30" font-weight="700" fill="#F09082">context_tree_query</text>
+<text x="540" y="1590" text-anchor="middle" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="30"><tspan fill="#F09082">$</tspan><tspan fill="#9fa4ab" dx="10">pi install npm:pi-context-prune</tspan></text>
+<text x="540" y="1630" text-anchor="middle" font-family="CommitMono, 'DejaVu Sans Mono', monospace" font-size="22" fill="#757d89">github.com/championswimmer/pi-context-prune</text>
+</svg>
