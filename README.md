@@ -1,4 +1,4 @@
-# pi-context-prune
+# <img src="https://raw.githubusercontent.com/championswimmer/pi-context-prune/main/assets/icon.png" width="44" height="44" align="absmiddle" alt=""> pi-context-prune
 
 [![npm version](https://img.shields.io/npm/v/pi-context-prune?style=flat-square)](https://www.npmjs.com/package/pi-context-prune)
 [![npm downloads](https://img.shields.io/npm/dm/pi-context-prune?style=flat-square)](https://www.npmjs.com/package/pi-context-prune)
