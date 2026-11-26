@@ -1,24 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
-<defs>
-<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34D399"/><stop offset="1" stop-color="#0E7A4B"/></linearGradient>
-<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0B1713"/><stop offset="1" stop-color="#050A08"/></linearGradient>
-<radialGradient id="glow" cx="0.2" cy="0.5" r="0.6"><stop offset="0" stop-color="#34D399" stop-opacity="0.22"/><stop offset="1" stop-color="#34D399" stop-opacity="0"/></radialGradient>
-</defs>
-<rect width="1200" height="630" fill="url(#bg)"/>
-<rect width="1200" height="630" fill="url(#glow)"/>
-<g transform="translate(110 115)"><svg width="400" height="400" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="url(#g)"/>
-<g transform="translate(256 262) rotate(40) translate(0 -8)">
-  <g fill="#F4FFF8">
-    <path d="M-22 16 L16 -14 L40 -186 Q42 -198 30 -190 Z" transform="scale(1)"/>
-    <path d="M22 16 L-16 -14 L-40 -186 Q-42 -198 -30 -190 Z"/>
-  </g>
-  <g fill="none" stroke="#F4FFF8" stroke-width="26" stroke-linecap="round">
-    <path d="M-6 6 L-46 74"/><circle cx="-56" cy="118" r="44"/>
-    <path d="M6 6 L46 74"/><circle cx="56" cy="118" r="44"/>
-  </g>
-  <circle cx="0" cy="0" r="15" fill="#0E7A4B"/>
-</g></svg></g>
-<text x="570" y="316" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="64" fill="#F4FFF8">pi-context-prune</text>
-<rect x="574" y="348" width="72" height="6" rx="3" fill="#34D399"/>
-<text x="572" y="406" font-family="Inter, Helvetica, Arial, sans-serif" font-size="34" fill="#A7C4B8">Trim tool output. Keep the history.</text>
+<defs><radialGradient id="v" cx="50%" cy="50%" r="75%"><stop offset="0.5" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.45"/></radialGradient>
+<pattern id="gr" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#fff" stroke-opacity="0.04"/></pattern></defs>
+<rect width="1200" height="630" fill="#0d1116"/><rect width="1200" height="630" fill="url(#gr)"/><rect width="1200" height="630" fill="url(#v)"/>
+<g transform="translate(96 175) scale(0.5469)">
+<defs><clipPath id="t"><rect width="512" height="512" rx="88"/></clipPath></defs>
+<rect width="512" height="512" rx="88" fill="#161d27"/>
+<g clip-path="url(#t)" stroke="#ffffff" stroke-opacity="0.045" stroke-width="1"><path d="M32 0V512M0 32H512"/><path d="M64 0V512M0 64H512"/><path d="M96 0V512M0 96H512"/><path d="M128 0V512M0 128H512"/><path d="M160 0V512M0 160H512"/><path d="M192 0V512M0 192H512"/><path d="M224 0V512M0 224H512"/><path d="M256 0V512M0 256H512"/><path d="M288 0V512M0 288H512"/><path d="M320 0V512M0 320H512"/><path d="M352 0V512M0 352H512"/><path d="M384 0V512M0 384H512"/><path d="M416 0V512M0 416H512"/><path d="M448 0V512M0 448H512"/><path d="M480 0V512M0 480H512"/></g>
+<rect x="6" y="6" width="500" height="500" rx="82" fill="none" stroke="#495059" stroke-width="2"/>
+<g stroke="#757d89" stroke-width="2" fill="none"><path d="M28 48V28H48M464 28H484V48M28 464V484H48M484 464V484H464"/></g>
+<g shape-rendering="crispEdges">
+<rect x="128" y="128" width="224" height="32" fill="#F09082"/>
+<rect x="128" y="176" width="144" height="32" fill="#F09082"/>
+<rect x="128" y="304" width="176" height="32" fill="#F09082"/>
+<rect x="128" y="352" width="96" height="32" fill="#F09082"/>
+<rect x="304" y="208" width="48" height="16" fill="#495059"/>
+<rect x="304" y="240" width="48" height="16" fill="#495059"/>
+<rect x="304" y="272" width="48" height="16" fill="#495059"/>
+<rect x="240" y="224" width="64" height="48" fill="#a3a473"/>
+<rect x="224" y="208" width="16" height="16" fill="#ebe7e4"/>
+<rect x="208" y="224" width="16" height="16" fill="#ebe7e4"/>
+<rect x="192" y="240" width="16" height="16" fill="#ebe7e4"/>
+<rect x="176" y="256" width="16" height="16" fill="#ebe7e4"/>
+<rect x="160" y="272" width="16" height="16" fill="#ebe7e4"/>
+</g>
+</g>
+<text x="430" y="290" font-family="CaskaydiaCove Nerd Font Mono, DejaVu Sans Mono, monospace" font-weight="700" font-size="60" fill="#ebe7e4">pi-context-prune</text>
+<rect x="1014" y="243" width="30" height="54" fill="#F09082"/>
+<rect x="430" y="334" width="72" height="4" fill="#F09082"/>
+<text x="430" y="392" font-family="CaskaydiaCove Nerd Font Mono, DejaVu Sans Mono, monospace" font-size="28" fill="#9fa4ab">Trim tool output. Keep the history.</text>
+<text x="96" y="570" font-family="CaskaydiaCove Nerd Font Mono, DejaVu Sans Mono, monospace" font-size="18" fill="#757d89">pi extension</text>
+<path d="M1040 64H1136V160" transform="translate(0 0)" fill="none" stroke="#757d89" stroke-width="2" opacity="0"/>
+<path d="M1104 64H1136V96" fill="none" stroke="#757d89" stroke-width="2"/>
 </svg>
